@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Polymarket MM — BTC-15m Live Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { mono: ['JetBrains Mono', 'Fira Code', 'monospace'] },
+          colors: {
+            surface:  '#0f1117',
+            card:     '#161b22',
+            border:   '#21262d',
+            muted:    '#8b949e',
+            accent:   '#58a6ff',
+            yes:      '#3fb950',
+            'yes-dim':'#1a3d22',
+            no:       '#f85149',
+            'no-dim': '#3d1a1a',
+            warn:     '#d29922',
+          },
+        }
+      }
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    body { font-family: 'JetBrains Mono', monospace; background: #0f1117; }
+    @keyframes flash-yes {
+      0%   { background-color: rgba(63,185,80,0.15); }
+      100% { background-color: transparent; }
+    }
+    @keyframes flash-no {
+      0%   { background-color: rgba(248,81,73,0.15); }
+      100% { background-color: transparent; }
+    }
+    .flash-yes { animation: flash-yes 0.35s ease-out; }
+    .flash-no  { animation: flash-no  0.35s ease-out; }
+    .dot-live  { animation: pulse 1.5s cubic-bezier(0.4,0,0.6,1) infinite; }
+    .devbar-fill { transition: width 0.3s ease, left 0.3s ease; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: #161b22; }
+    ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+
+    /* Order book rows */
+    .ob-ask-row { background: rgba(248,81,73,0.06); }
+    .ob-ask-row:first-child { background: rgba(248,81,73,0.14); }  /* best ask */
+    .ob-bid-row { background: rgba(63,185,80,0.06); }
+    .ob-bid-row:last-child  { background: rgba(63,185,80,0.14); }  /* best bid */
+    .ob-depth-bar { position: absolute; top:0; bottom:0; right:0; opacity:0.18; pointer-events:none; }
+    .ob-ask-row .ob-depth-bar { background:#f85149; }
+    .ob-bid-row .ob-depth-bar { background:#3fb950; }
+    .ttl-bar-fill { transition: width 1s linear; }
+  </style>
+</head>
+
+<body class="min-h-screen text-gray-100 p-3 md:p-5">
+
+  <!-- ─── Waiting overlay ──────────────────────────────────────────────────── -->
+  <div id="waiting-overlay"
+       class="fixed inset-0 bg-[#0f1117]/95 flex flex-col items-center justify-center z-50 gap-4">
+    <div class="w-10 h-10 border-4 border-accent border-t-transparent rounded-full animate-spin"></div>
+    <p class="text-white font-semibold">Connecting to Polymarket feed…</p>
+    <p class="text-muted text-sm">Waiting for RolloverWatcher to find active BTC-15m market</p>
+    <a href="/api/status" target="_blank" class="text-accent text-xs hover:underline mt-2">Check pipeline status →</a>
+  </div>
+
+  <!-- ─── Header ──────────────────────────────────────────────────────────── -->
+  <div class="flex items-start justify-between mb-3 gap-4">
+    <div class="min-w-0">
+      <h1 class="text-base font-bold text-white tracking-tight">⚡ Polymarket MM — BTC 15m</h1>
+      <p id="market-question" class="text-xs text-muted mt-0.5 truncate">Connecting…</p>
+    </div>
+    <div class="flex items-center gap-3 shrink-0">
+      <span id="ws-status" class="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-card border border-border">
+        <span class="w-2 h-2 rounded-full bg-gray-500" id="ws-dot"></span>
+        <span id="ws-label">Disconnected</span>
+      </span>
+      <span class="text-xs text-muted" id="tick-counter">0 ticks</span>
+      <a href="/api/status" target="_blank" class="text-xs text-accent hover:underline">status</a>
+    </div>
+  </div>
+
+  <!-- ─── Rollover Banner ───────────────────────────────────────────────────── -->
+  <div id="rollover-banner"
+       class="hidden mb-3 px-3 py-2 rounded-lg bg-warn/10 border border-warn/40 text-warn text-xs flex items-center gap-2">
+    <span>🔄</span><span id="rollover-msg">Rollover…</span>
+  </div>
+
+  <!-- ─── TTL Bar ──────────────────────────────────────────────────────────── -->
+  <div class="mb-4">
+    <div class="flex justify-between text-xs text-muted mb-1">
+      <span>Time to Expiry</span>
+      <span id="ttl-label" class="text-white font-semibold tabular-nums">--:--</span>
+    </div>
+    <div class="h-1.5 bg-border rounded-full overflow-hidden">
+      <div id="ttl-bar" class="h-full rounded-full bg-accent ttl-bar-fill" style="width:100%"></div>
+    </div>
+  </div>
+
+  <!-- ─── Dual Order Book ──────────────────────────────────────────────────── -->
+  <div class="grid grid-cols-2 gap-3 mb-4">
+
+    <!-- YES / UP Order Book -->
+    <div class="bg-card rounded-xl border border-[rgba(63,185,80,0.25)] overflow-hidden">
+      <div class="flex items-center justify-between px-3 py-2 border-b border-border">
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-yes dot-live"></span>
+          <span class="text-yes font-bold text-xs uppercase tracking-widest">YES / UP</span>
+        </div>
+        <div class="flex items-center gap-3 text-xs">
+          <span class="text-muted">mid</span>
+          <span id="yes-mid" class="text-white font-semibold tabular-nums">—</span>
+          <span class="text-muted">sprd</span>
+          <span id="yes-spread" class="text-warn font-semibold tabular-nums">—</span>
+        </div>
+      </div>
+
+      <!-- Column headers -->
+      <div class="grid grid-cols-2 text-[10px] text-muted px-3 py-1 border-b border-border">
+        <span>SHARES</span><span class="text-right">PRICE</span>
+      </div>
+
+      <!-- Asks (worst → best, best ask at bottom near spread) -->
+      <div id="yes-asks" class="text-xs font-mono"></div>
+
+      <!-- Spread divider -->
+      <div class="flex items-center gap-2 px-3 py-1 bg-surface text-[10px] text-muted border-y border-border">
+        <span>spread</span>
+        <span id="yes-spread-val" class="text-warn tabular-nums">—</span>
+        <span class="ml-auto" id="yes-src-lbl">—</span>
+      </div>
+
+      <!-- Bids (best → worst) -->
+      <div id="yes-bids" class="text-xs font-mono"></div>
+
+      <div class="px-3 py-1.5 text-[10px] text-muted text-right" id="yes-ts">—</div>
+    </div>
+
+    <!-- NO / DOWN Order Book -->
+    <div class="bg-card rounded-xl border border-[rgba(248,81,73,0.25)] overflow-hidden">
+      <div class="flex items-center justify-between px-3 py-2 border-b border-border">
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-no dot-live"></span>
+          <span class="text-no font-bold text-xs uppercase tracking-widest">NO / DOWN</span>
+        </div>
+        <div class="flex items-center gap-3 text-xs">
+          <span class="text-muted">mid</span>
+          <span id="no-mid" class="text-white font-semibold tabular-nums">—</span>
+          <span class="text-muted">sprd</span>
+          <span id="no-spread" class="text-warn font-semibold tabular-nums">—</span>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 text-[10px] text-muted px-3 py-1 border-b border-border">
+        <span>SHARES</span><span class="text-right">PRICE</span>
+      </div>
+
+      <div id="no-asks" class="text-xs font-mono"></div>
+
+      <div class="flex items-center gap-2 px-3 py-1 bg-surface text-[10px] text-muted border-y border-border">
+        <span>spread</span>
+        <span id="no-spread-val" class="text-warn tabular-nums">—</span>
+        <span class="ml-auto" id="no-src-lbl">—</span>
+      </div>
+
+      <div id="no-bids" class="text-xs font-mono"></div>
+
+      <div class="px-3 py-1.5 text-[10px] text-muted text-right" id="no-ts">—</div>
+    </div>
+
+  </div>
+
+  <!-- ─── Convergence Bar ───────────────────────────────────────────────────── -->
+  <div class="bg-card rounded-xl border border-border p-4 mb-3">
+    <div class="flex items-center justify-between mb-2">
+      <p class="text-xs font-semibold text-white">
+        P<sub>yes</sub> + P<sub>no</sub> &nbsp;<span class="text-muted font-normal">≈ 1.00</span>
+      </p>
+      <div class="flex items-center gap-3 text-xs">
+        <span class="text-muted">sum</span>
+        <span id="price-sum" class="font-bold text-white tabular-nums">—</span>
+        <span id="dev-badge" class="px-2 py-0.5 rounded-full text-xs font-semibold bg-border text-muted">Δ —</span>
+      </div>
+    </div>
+    <div class="relative h-5 bg-surface rounded-full overflow-hidden border border-border">
+      <div class="absolute top-0 bottom-0 left-1/2 w-px bg-accent/40"></div>
+      <div id="dev-bar" class="absolute top-1 bottom-1 rounded-full devbar-fill bg-yes" style="left:50%;width:0%"></div>
+    </div>
+    <div class="flex justify-between text-[10px] text-muted mt-1">
+      <span>← under 0.90</span><span>1.00</span><span>over 1.10 →</span>
+    </div>
+    <div class="mt-2 flex items-center gap-2 text-xs text-muted">
+      <span>sync Δt:</span>
+      <span id="ts-sync" class="text-white tabular-nums">— ms</span>
+      <span id="sync-badge" class="px-1.5 py-0.5 rounded text-xs bg-border">—</span>
+    </div>
+  </div>
+
+  <!-- ─── Token info ────────────────────────────────────────────────────────── -->
+  <div class="bg-card rounded-xl border border-border p-3 text-[11px] space-y-1 font-mono mb-3">
+    <div class="flex gap-2"><span class="text-muted w-24 shrink-0">Condition</span><span id="info-cond" class="text-accent break-all">—</span></div>
+    <div class="flex gap-2"><span class="text-muted w-24 shrink-0">YES token</span><span id="info-yes-tok" class="text-yes break-all">—</span></div>
+    <div class="flex gap-2"><span class="text-muted w-24 shrink-0">NO token</span><span id="info-no-tok" class="text-no break-all">—</span></div>
+  </div>
+
+  <!-- ─── Event log ─────────────────────────────────────────────────────────── -->
+  <div class="bg-card rounded-xl border border-border p-3">
+    <p class="text-[10px] text-muted mb-1.5 uppercase tracking-wider">Event Log</p>
+    <div id="log-feed" class="h-28 overflow-y-auto text-[11px] text-muted space-y-0.5 font-mono"></div>
+  </div>
+
+<!-- ──────────────────────────────────────────────────────────────────────────── -->
+<script>
+  // ── State ──────────────────────────────────────────────────────────────────
+  let tickCount = 0;
+  let endTimestampMs = 0;   // from server; drives TTL bar
+  let marketDurationMs = 900_000; // 15 min default
+  let firstTick = false;
+  const LEVELS = 5; // order book depth to display
+
+  // ── WebSocket ──────────────────────────────────────────────────────────────
+  const WS_URL = `ws://${location.host}/ws/quotes`;
+  let ws = null, reconnDelay = 1000;
+
+  function connect() {
+    ws = new WebSocket(WS_URL);
+    ws.onopen  = () => { setWsStatus(true);  log('WS connected'); reconnDelay = 1000; };
+    ws.onclose = () => { setWsStatus(false); log(`WS disconnected — retry ${reconnDelay}ms`);
+                         setTimeout(connect, reconnDelay); reconnDelay = Math.min(reconnDelay*2, 15000); };
+    ws.onerror = () => ws.close();
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'tick')     handleTick(msg);
+        else if (msg.type === 'rollover') handleRollover(msg);
+      } catch(e) { console.error('WS parse error', e); }
+    };
+  }
+
+  // ── Tick handler ──────────────────────────────────────────────────────────
+  function handleTick(d) {
+    tickCount++;
+    setText('tick-counter', `${tickCount} ticks`);
+
+    if (!firstTick) {
+      firstTick = true;
+      document.getElementById('waiting-overlay').style.display = 'none';
+      log('First tick — feed live!');
+    }
+
+    // Market question + end time
+    if (d.question)         setText('market-question', d.question);
+    if (d.end_timestamp_ms) endTimestampMs = d.end_timestamp_ms;
+
+    // YES card
+    setText('yes-mid',    fmt4(d.yes_mid));
+    setText('yes-spread', fmt4(d.yes_spread));
+    setText('yes-spread-val', fmt4(d.yes_spread));
+    setText('yes-src-lbl', d.source || '—');
+    setText('yes-ts', relTime(d.yes_ts_ms));
+    renderBook('yes-asks', 'yes-bids', d.yes_asks || [], d.yes_bids || [], 'yes');
+
+    // NO card
+    setText('no-mid',    fmt4(d.no_mid));
+    setText('no-spread', fmt4(d.no_spread));
+    setText('no-spread-val', fmt4(d.no_spread));
+    setText('no-src-lbl', d.source || '—');
+    setText('no-ts', relTime(d.no_ts_ms));
+    renderBook('no-asks', 'no-bids', d.no_asks || [], d.no_bids || [], 'no');
+
+    // Info strip
+    setText('info-cond',    d.condition_id);
+    setText('info-yes-tok', d.yes_token_id);
+    setText('info-no-tok',  d.no_token_id);
+
+    // Convergence
+    updateConvergence(d.price_sum, d.price_deviation);
+    updateSync(d.ts_spread_ms);
+  }
+
+  // ── Order book renderer ───────────────────────────────────────────────────
+  // asks: sorted best-ask-first (ascending price) → display REVERSED (worst at top)
+  // bids: sorted best-bid-first (descending price) → display as-is
+  function renderBook(asksId, bidsId, asks, bids, side) {
+    const color = side === 'yes' ? '#3fb950' : '#f85149';
+
+    // Compute max size for depth bar scaling
+    const allSizes = [...asks, ...bids].map(r => r[1]);
+    const maxSz = allSizes.length ? Math.max(...allSizes) : 1;
+
+    // Asks: take top LEVELS, reverse so worst is at top, best ask is at bottom (near spread)
+    const askSlice = asks.slice(0, LEVELS).reverse();
+    const bidSlice = bids.slice(0, LEVELS);
+
+    document.getElementById(asksId).innerHTML = askSlice.map((r, i) =>
+      rowHtml(r[1], r[0], 'ask', maxSz, i === askSlice.length - 1)
+    ).join('');
+
+    document.getElementById(bidsId).innerHTML = bidSlice.map((r, i) =>
+      rowHtml(r[1], r[0], 'bid', maxSz, i === 0)
+    ).join('');
+  }
+
+  function rowHtml(size, price, side, maxSz, isBest) {
+    const pct    = maxSz > 0 ? (size / maxSz) * 100 : 0;
+    const isBid  = side === 'bid';
+    const rowCls = isBid ? 'ob-bid-row' : 'ob-ask-row';
+    const pxCol  = isBid ? '#3fb950'    : '#f85149';
+    const bgAlpha = isBest ? '0.18' : '0.07';
+    const bg     = isBid
+      ? `rgba(63,185,80,${bgAlpha})`
+      : `rgba(248,81,73,${bgAlpha})`;
+
+    return `<div class="grid grid-cols-2 px-3 py-[3px] relative" style="background:${bg}">
+      <span class="text-muted tabular-nums">${fmtSize(size)}</span>
+      <span class="text-right tabular-nums font-semibold" style="color:${pxCol}">${fmt4(price)}</span>
+      <div class="ob-depth-bar" style="width:${pct.toFixed(1)}%;background:${pxCol};opacity:0.15"></div>
+    </div>`;
+  }
+
+  function fmtSize(s) {
+    if (s >= 10000) return (s/1000).toFixed(1)+'k';
+    if (s >= 1000)  return (s/1000).toFixed(2)+'k';
+    return s.toFixed(0);
+  }
+
+  // ── Rollover handler ───────────────────────────────────────────────────────
+  function handleRollover(d) {
+    const banner = document.getElementById('rollover-banner');
+    document.getElementById('rollover-msg').textContent =
+      `ROLLOVER → ${d.new_condition_id.slice(0,16)}…  TTL: ${d.new_ttl_str}`;
+    banner.classList.remove('hidden');
+    if (d.new_question) setText('market-question', d.new_question);
+    endTimestampMs = 0;
+    log(`ROLLOVER: ${d.old_condition_id.slice(0,14)}… → ${d.new_condition_id.slice(0,14)}…`);
+    setTimeout(() => banner.classList.add('hidden'), 15000);
+  }
+
+  // ── Convergence bar ────────────────────────────────────────────────────────
+  function updateConvergence(sum, dev) {
+    setText('price-sum', fmt4(sum));
+    const badge  = document.getElementById('dev-badge');
+    const devBar = document.getElementById('dev-bar');
+    let colour = 'text-yes', barCls = 'bg-yes';
+    if (dev > 0.05)      { colour = 'text-no';   barCls = 'bg-no'; }
+    else if (dev > 0.02) { colour = 'text-warn';  barCls = 'bg-warn'; }
+    badge.textContent = `Δ ${fmt4(dev)}`;
+    badge.className   = `px-2 py-0.5 rounded-full text-xs font-semibold bg-border ${colour}`;
+    const pct = Math.min((dev / 0.15) * 50, 50);
+    devBar.className  = `absolute top-1 bottom-1 rounded-full devbar-fill ${barCls}`;
+    devBar.style.left  = `${50 - pct}%`;
+    devBar.style.width = `${pct * 2}%`;
+  }
+
+  // ── Sync quality ───────────────────────────────────────────────────────────
+  function updateSync(ms) {
+    setText('ts-sync', `${ms.toFixed(0)} ms`);
+    const b = document.getElementById('sync-badge');
+    if (ms < 50)       { b.textContent = 'GOOD';   b.className = 'px-1.5 py-0.5 rounded text-xs bg-yes/20 text-yes'; }
+    else if (ms < 200) { b.textContent = 'OK';     b.className = 'px-1.5 py-0.5 rounded text-xs bg-warn/20 text-warn'; }
+    else               { b.textContent = 'LAGGED'; b.className = 'px-1.5 py-0.5 rounded text-xs bg-no/20 text-no'; }
+  }
+
+  // ── TTL countdown (runs locally every second) ─────────────────────────────
+  function tickTTL() {
+    if (!endTimestampMs) { setText('ttl-label', '--:--'); return; }
+    const remMs = endTimestampMs - Date.now();
+    if (remMs <= 0) {
+      setText('ttl-label', 'EXPIRED');
+      document.getElementById('ttl-bar').style.width = '0%';
+      return;
+    }
+    const remS = Math.floor(remMs / 1000);
+    const m = Math.floor(remS / 60), s = remS % 60;
+    setText('ttl-label', `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`);
+    const pct = Math.min((remMs / marketDurationMs) * 100, 100);
+    document.getElementById('ttl-bar').style.width = `${pct}%`;
+    // colour transition: green → warn → red as time runs out
+    const bar = document.getElementById('ttl-bar');
+    if (remS < 30)      bar.style.background = '#f85149';
+    else if (remS < 120) bar.style.background = '#d29922';
+    else                 bar.style.background = '#58a6ff';
+  }
+  setInterval(tickTTL, 1000);
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function setText(id, txt) { const el = document.getElementById(id); if (el) el.textContent = txt; }
+  function fmt4(v)  { return (typeof v === 'number') ? v.toFixed(4) : '—'; }
+  function relTime(ts_ms) {
+    if (!ts_ms) return '—';
+    const d = Date.now() - ts_ms;
+    if (d < 1000)  return `${d.toFixed(0)}ms ago`;
+    if (d < 60000) return `${(d/1000).toFixed(1)}s ago`;
+    return `${(d/60000).toFixed(1)}m ago`;
+  }
+  function setWsStatus(ok) {
+    document.getElementById('ws-dot').className = `w-2 h-2 rounded-full ${ok ? 'bg-yes dot-live' : 'bg-gray-500'}`;
+    setText('ws-label', ok ? 'Live' : 'Disconnected');
+  }
+  function log(msg) {
+    const feed = document.getElementById('log-feed');
+    const now  = new Date().toISOString().slice(11,23);
+    const line = document.createElement('p');
+    line.textContent = `${now}  ${msg}`;
+    feed.prepend(line);
+    while (feed.children.length > 80) feed.removeChild(feed.lastChild);
+  }
+
+  // ── Start ──────────────────────────────────────────────────────────────────
+  setWsStatus(false);
+  connect();
+</script>
+</body>
+</html>
