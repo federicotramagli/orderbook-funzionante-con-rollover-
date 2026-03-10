@@ -22,15 +22,22 @@ Integration:
 """
 
 import asyncio
+import dataclasses
 import json
 import logging
 import re
+import ssl
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Awaitable
 
 import aiohttp
+
+# SSL context that skips certificate verification (macOS cert bundle fix)
+_SSL_NO_VERIFY = ssl.create_default_context()
+_SSL_NO_VERIFY.check_hostname = False
+_SSL_NO_VERIFY.verify_mode = ssl.CERT_NONE
 
 # ── Import from local ingestion engine ───────────────────────────────────────
 from ingestion_engine import (
@@ -112,6 +119,7 @@ class ActiveMarket:
     # AFTER the slug timestamp, while the resolution is pending.
     api_active: bool = True
     api_closed: bool = False
+    price_to_beat: float = 0.0   # BTC price at market open (from eventMetadata)
 
     @property
     def seconds_to_expiry(self) -> float:
@@ -322,11 +330,41 @@ def _minimal_normalize(market: dict) -> dict:
         "end_date_iso": market.get("endDateIso") or market.get("end_date_iso"),
         "start_date_iso": market.get("startDateIso") or market.get("start_date_iso"),
         "accepting_orders": market.get("acceptingOrders", True),
-        "active":       market.get("active", False),
-        "closed":       market.get("closed", False),
-        "market_slug":  market.get("slug", ""),
+        "active":         market.get("active", False),
+        "closed":         market.get("closed", False),
+        "market_slug":    market.get("slug", ""),
+        "event_metadata": _extract_event_metadata(market),
         "tokens": tokens,
     }
+
+
+def _extract_ptb_from_description(market: dict) -> float:
+    """
+    Extract priceToBeat from the market question or description text.
+    Polymarket formats it as: 'Is Bitcoin above $71,384.09?'
+    Falls back to description field if question doesn't contain a price.
+    """
+    for field in ("question", "description"):
+        text = market.get(field) or ""
+        m = re.search(r"\$\s*([\d,]+(?:\.\d+)?)", text)
+        if m:
+            try:
+                return float(m.group(1).replace(",", ""))
+            except ValueError:
+                pass
+    return 0.0
+
+
+def _extract_event_metadata(market: dict) -> dict:
+    """Extract eventMetadata from market dict.
+    Polymarket embeds it at market.events[0].eventMetadata."""
+    meta = market.get("eventMetadata") or market.get("event_metadata")
+    if meta and isinstance(meta, dict) and meta.get("priceToBeat"):
+        return meta
+    events = market.get("events") or []
+    if events and isinstance(events, list):
+        return events[0].get("eventMetadata") or {}
+    return {}
 
 
 def _normalize(market: dict) -> dict:
@@ -344,6 +382,11 @@ def _normalize(market: dict) -> dict:
                 )
             if not n.get("market_slug"):
                 n["market_slug"] = market.get("slug", "")
+            # Always merge raw eventMetadata — Nautilus may set event_metadata
+            # without priceToBeat, so the guard `if not n.get(...)` would skip it.
+            extracted = _extract_event_metadata(market)
+            existing  = n.get("event_metadata") or {}
+            n["event_metadata"] = {**existing, **extracted}
             return n
         except Exception:
             pass
@@ -400,6 +443,7 @@ def _build_active_market(n: dict) -> ActiveMarket | None:
         yes_tok, no_tok = no_tok, yes_tok
         yes_label, no_label = no_label, yes_label
 
+    ptb = float((n.get("event_metadata") or {}).get("priceToBeat", 0) or 0)
     return ActiveMarket(
         condition_id=n.get("condition_id", ""),
         question=n.get("question", ""),
@@ -412,7 +456,42 @@ def _build_active_market(n: dict) -> ActiveMarket | None:
         accepting_orders=bool(n.get("accepting_orders", True)),
         api_active=bool(n.get("active", True)),
         api_closed=bool(n.get("closed", False)),
+        price_to_beat=ptb,
     )
+
+
+_GAMMA_EVENTS_URL = "https://gamma-api.polymarket.com/events"
+
+
+async def _fetch_ptb_for_event(
+    session: aiohttp.ClientSession, event_slug: str
+) -> float:
+    """
+    Fetch priceToBeat from the Gamma Events API.
+    The /events endpoint returns eventMetadata even for active markets,
+    whereas /markets only includes it after the market is resolved.
+    """
+    if not event_slug:
+        return 0.0
+    try:
+        async with session.get(
+            _GAMMA_EVENTS_URL,
+            params={"slug": event_slug},
+            timeout=aiohttp.ClientTimeout(total=6),
+        ) as resp:
+            if resp.status != 200:
+                return 0.0
+            data = await resp.json(content_type=None)
+            events = data if isinstance(data, list) else data.get("data", [])
+            for ev in events:
+                meta = ev.get("eventMetadata") or {}
+                ptb = meta.get("priceToBeat")
+                if ptb:
+                    _log.info("[ptb_fetch] slug=%s  priceToBeat=%.2f", event_slug, float(ptb))
+                    return float(ptb)
+    except Exception as exc:
+        _log.debug("[ptb_fetch] slug=%s  error=%s", event_slug, exc)
+    return 0.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -469,6 +548,9 @@ class RolloverWatcher:
             return self._cfg.post_expiry_poll_interval_secs
         if tte <= self._cfg.fast_poll_threshold_secs:
             return self._cfg.fast_poll_interval_secs
+        # Poll quickly while priceToBeat is not yet available from the API
+        if self._current.price_to_beat == 0.0:
+            return 5.0
         return self._cfg.normal_poll_interval_secs
 
     async def run(self) -> None:
@@ -477,7 +559,8 @@ class RolloverWatcher:
             f"[Watcher] Starting — series='{self._cfg.slug_prefix}' "
             f"fast_thresh={self._cfg.fast_poll_threshold_secs}s"
         )
-        async with aiohttp.ClientSession() as session:
+        connector = aiohttp.TCPConnector(ssl=_SSL_NO_VERIFY)
+        async with aiohttp.ClientSession(connector=connector) as session:
             while True:
                 try:
                     await self._poll(session)
@@ -635,6 +718,27 @@ class RolloverWatcher:
                 am = _build_active_market(normalized)
                 if am is None or am.is_truly_done:
                     continue
+                # If priceToBeat is missing, try multiple sources
+                if am.price_to_beat == 0.0:
+                    ptb = 0.0
+                    # Source 1: market.line (Gamma field for strike price)
+                    if not ptb and m.get("line"):
+                        try:
+                            ptb = float(m["line"])
+                            _log.info("[ptb_line] slug=%s  priceToBeat=%.2f (from line)", slug, ptb)
+                        except (ValueError, TypeError):
+                            ptb = 0.0
+                    # Source 2: events API
+                    if not ptb:
+                        event_slug = (m.get("events") or [{}])[0].get("slug", "")
+                        ptb = await _fetch_ptb_for_event(session, event_slug)
+                    # Source 3: regex from question/description
+                    if not ptb:
+                        ptb = _extract_ptb_from_description(m)
+                        if ptb > 0:
+                            _log.info("[ptb_regex] slug=%s  priceToBeat=%.2f (from description)", slug, ptb)
+                    if ptb > 0:
+                        am = dataclasses.replace(am, price_to_beat=ptb)
                 if am not in results:
                     results.append(am)
                     self._log.debug(

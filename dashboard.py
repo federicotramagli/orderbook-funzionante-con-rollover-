@@ -26,10 +26,20 @@ import asyncio
 import json
 import logging
 import os
+import ssl
 import sys
 import time
 from pathlib import Path
 from typing import Any
+
+from strategy_engine import PredictionMarketPricer
+from analytics_engine import AnalyticsEngine
+from paper_trader import PaperTrader
+
+# SSL context that skips certificate verification (macOS cert bundle fix)
+_SSL_NO_VERIFY = ssl.create_default_context()
+_SSL_NO_VERIFY.check_hostname = False
+_SSL_NO_VERIFY.verify_mode = ssl.CERT_NONE
 
 # ── FastAPI / Uvicorn ─────────────────────────────────────────────────────────
 try:
@@ -78,6 +88,24 @@ _tick_count: int = 0
 # Throttle flag: publish_yesno_tick marks dirty, broadcaster_loop flushes every 100ms
 _book_dirty: bool = False
 
+# BTC price state — updated by Pyth price feed loop
+_btc_current: float = 0.0
+
+# priceToBeat captured at rollover moment (Pyth price = BTC at market boundary)
+_ptb_at_rollover: float = 0.0
+
+# ── Strategy / Kernel layer ───────────────────────────────────────────────────
+# Single pricer instance shared across all async tasks (all run on same loop)
+_pricer: PredictionMarketPricer = PredictionMarketPricer()
+_strategy_log = logging.getLogger("Strategy")
+
+# ── Analytics layer ────────────────────────────────────────────────────────────
+_analytics: AnalyticsEngine = AnalyticsEngine()
+_analytics_log = logging.getLogger("Analytics")
+
+# ── Paper trading layer ────────────────────────────────────────────────────────
+_paper: PaperTrader = PaperTrader()
+
 # ─────────────────────────────────────────────────────────────────────────────
 # BRIDGE FUNCTION: called by the MM pipeline on every tick
 # ─────────────────────────────────────────────────────────────────────────────
@@ -101,6 +129,7 @@ async def publish_yesno_tick(ynt: YesNoMarketTick) -> None:
         if mkt:
             d["end_timestamp_ms"] = mkt.end_timestamp_ms
             d["question"]         = mkt.question
+            d["price_to_beat"]    = mkt.price_to_beat
         engine = _manager_ref._engine
         yes_st = engine._market_states.get(ynt.yes_token_id)
         no_st  = engine._market_states.get(ynt.no_token_id)
@@ -108,6 +137,105 @@ async def publish_yesno_tick(ynt: YesNoMarketTick) -> None:
         d["yes_asks"] = yes_st.top_asks(8) if yes_st else []
         d["no_bids"]  = no_st.top_bids(8)  if no_st  else []
         d["no_asks"]  = no_st.top_asks(8)  if no_st  else []
+
+    d["btc_current"] = _btc_current
+
+    # ── Kernel / Strategy layer ───────────────────────────────────────────────
+    # Seed kernel with market data when strike_k is not yet set.
+    # Priority: API price_to_beat → rollover-captured Pyth price → no K (market_mid fallback)
+    if _pricer.strike_k == 0.0 and _manager_ref is not None:
+        mkt = _manager_ref.current_market
+        if mkt:
+            k = mkt.price_to_beat or _ptb_at_rollover   # use UI-captured value as fallback
+            if k > 0:
+                _pricer.reset_market(
+                    strike_k=k,
+                    seconds_to_expiry=mkt.seconds_to_expiry,
+                )
+            else:
+                # No K available yet — at least seed tau so A-S spreads are correct
+                _pricer.tau_secs = max(0.0, mkt.seconds_to_expiry)
+
+    # Ensure BTC spot is always in sync (in case pyth_price_loop hasn't fired yet)
+    if _pricer.btc_spot == 0.0 and _btc_current > 0:
+        _pricer.btc_spot = _btc_current
+
+    # Tick filter: only run kernel when YES price changes (not size-only)
+    price_changed = _pricer.process_tick(ynt.yes_bid, ynt.yes_ask)
+    quote = _pricer.decide(ynt.yes_bid, ynt.yes_ask)
+
+    d["bs_fair"]         = quote.fair_price
+    d["bs_bid"]          = quote.theoretical_bid
+    d["bs_ask"]          = quote.theoretical_ask
+    d["bs_action"]       = quote.action
+    d["bs_action_price"] = quote.action_price
+    d["bs_sigma_b"]      = quote.sigma_b
+    d["bs_tau_secs"]     = quote.tau_secs
+    d["bs_inventory"]    = quote.inventory
+    d["bs_fair_source"]  = quote.fair_source   # "lognormal" | "market_mid" | "prior"
+    d["bs_btc_spot"]     = quote.btc_spot
+    d["bs_strike_k"]     = quote.strike_k
+    d["bs_cutoff"]       = _pricer.in_cutoff   # True when T ≤ HARD_CUTOFF_SECONDS
+
+    if price_changed:
+        _strategy_log.info(_pricer.format_log_line(ynt.yes_bid, ynt.yes_ask, quote))
+
+    # ── Analytics layer ───────────────────────────────────────────────────────
+    # Always seed these keys so the UI panel always gets valid JSON fields.
+    d["an_rv"]      = None
+    d["an_iv"]      = None
+    d["an_vol_gap"] = None
+    d["an_vega"]    = None
+    d["an_rv_n"]    = len(_analytics._price_log)
+
+    # Full compute only when K, S, and T are all known.
+    if _pricer.strike_k > 0 and _pricer.btc_spot > 0 and _pricer.tau_secs >= 1.0:
+        snap = _analytics.compute(
+            btc_spot  = _pricer.btc_spot,
+            strike_k  = _pricer.strike_k,
+            tau_secs  = _pricer.tau_secs,
+            yes_bid   = ynt.yes_bid,
+            yes_ask   = ynt.yes_ask,
+        )
+        if snap is not None:
+            # Update pricer's sigma_btc with live RV (replaces hardcoded 0.80)
+            if snap.rv is not None and snap.rv > 0:
+                _pricer.sigma_btc = snap.rv
+            if price_changed:
+                _analytics_log.info(_analytics.format_log_line(snap))
+            d["an_rv"]      = round(snap.rv * 100, 2)      if snap.rv      is not None else None
+            d["an_iv"]      = round(snap.iv * 100, 2)      if snap.iv      is not None else None
+            d["an_vol_gap"] = round(snap.vol_gap * 100, 2) if snap.vol_gap is not None else None
+            d["an_vega"]    = round(snap.vega, 4)          if snap.vega    is not None else None
+            d["an_rv_n"]    = snap.rv_samples
+
+    # ── Paper trading layer ───────────────────────────────────────────────────
+    current_mid = (ynt.yes_bid + ynt.yes_ask) / 2.0 if ynt.yes_bid and ynt.yes_ask else 0.5
+    mkt_id = ""
+    if _manager_ref is not None and _manager_ref.current_market:
+        mkt_id = _manager_ref.current_market.condition_id
+
+    if quote.action == "CUTOFF":
+        # Close any open paper position at current mid (simulate cancel-all)
+        if _paper.position != 0.0:
+            _paper.reset_market(mkt_id=mkt_id, close_at_mid=current_mid)
+    elif price_changed:
+        _paper.try_execute(
+            action       = quote.action,
+            action_price = quote.action_price,
+            current_mid  = current_mid,
+            mkt_id       = mkt_id,
+        )
+
+    pt_stats = _paper.stats(current_mid)
+    d["pt_position"]    = pt_stats.position
+    d["pt_avg_entry"]   = pt_stats.avg_entry
+    d["pt_upnl"]        = pt_stats.unrealized_pnl
+    d["pt_rpnl"]        = pt_stats.realized_pnl
+    d["pt_total_pnl"]   = pt_stats.total_pnl
+    d["pt_trades"]      = pt_stats.trade_count
+    d["pt_last_action"] = pt_stats.last_action
+    d["pt_last_ts"]     = pt_stats.last_ts
 
     _latest_tick_dict = d
     _book_dirty = True
@@ -147,11 +275,94 @@ async def broadcaster_loop() -> None:
             _last_broadcast = now
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PYTH PRICE FEED  (real-time BTC/USD from Pyth Network WS)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PYTH_WS_URL  = "wss://hermes.pyth.network/ws"
+_PYTH_BTC_ID  = "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43"
+
+async def pyth_price_loop() -> None:
+    """
+    Connects to Pyth Network WebSocket and streams real-time BTC/USD price.
+    Updates _btc_current and marks the latest tick dirty so the UI refreshes.
+    Reconnects automatically on any error.
+    """
+    global _btc_current, _book_dirty
+    log = logging.getLogger("PythFeed")
+
+    import websockets as _ws
+
+    while True:
+        try:
+            async with _ws.connect(_PYTH_WS_URL, ping_interval=20, ssl=_SSL_NO_VERIFY) as ws:
+                await ws.send(json.dumps({
+                    "ids":  [_PYTH_BTC_ID],
+                    "type": "subscribe",
+                }))
+                log.info("[Pyth] Connected — streaming BTC/USD")
+
+                async for raw in ws:
+                    try:
+                        msg = json.loads(raw)
+                        if msg.get("type") != "price_update":
+                            continue
+                        feed = msg.get("price_feed", {})
+                        if feed.get("id", "").lstrip("0") != _PYTH_BTC_ID:
+                            continue
+                        p    = feed["price"]
+                        price = float(p["price"]) * (10 ** int(p["expo"]))
+                        if price > 0:
+                            _btc_current = price
+                            _book_dirty  = True   # piggyback on next tick broadcast
+                            _pricer.update_btc(price)  # recompute fair value
+                            _analytics.add_pyth_price(price)  # feed RV rolling window
+                    except Exception:
+                        pass
+
+        except Exception as exc:
+            log.warning(f"[Pyth] WS error: {exc} — reconnecting in 5s")
+            await asyncio.sleep(5)
+
+
+async def theta_decay_loop() -> None:
+    """
+    Runs every second. Pushes time-to-expiry decay into the pricer (theta effect).
+    Marks tick dirty if theoretical quotes changed, so the UI refreshes even
+    during quiet periods (no new WS ticks).
+    """
+    global _book_dirty
+    while True:
+        await asyncio.sleep(1.0)
+        if _manager_ref is not None:
+            mkt = _manager_ref.current_market
+            if mkt and not mkt.is_expired:
+                changed = _pricer.update_tau(mkt.seconds_to_expiry)
+                if changed:
+                    _book_dirty = True
+
+
 async def publish_rollover(old: ActiveMarket, new: ActiveMarket) -> None:
     """
     Called on rollover events — broadcasts a rollover notification to the UI.
     """
-    global _latest_rollover_event
+    global _latest_rollover_event, _ptb_at_rollover
+    _log = logging.getLogger("publish_rollover")
+    # Capture Pyth price at rollover boundary — this IS the priceToBeat
+    # for the new market (BTC price at the exact market-open moment).
+    # Only use if API didn't provide it already.
+    if new.price_to_beat == 0.0 and _btc_current > 0:
+        new.price_to_beat = _btc_current
+        _ptb_at_rollover  = _btc_current
+        _log.info("[rollover] priceToBeat captured at rollover: %.2f", _btc_current)
+
+    # Reset kernel: new strike K = price_to_beat, new T = seconds to expiry
+    _pricer.reset_market(
+        strike_k=new.price_to_beat,
+        seconds_to_expiry=new.seconds_to_expiry,
+    )
+    # Close paper position at last known mid and start fresh for new market
+    _paper.reset_market(mkt_id=new.condition_id, close_at_mid=None)
     d = {
         "type": "rollover",
         "old_condition_id": old.condition_id,
@@ -347,16 +558,23 @@ async def _run_all() -> None:
     pipeline_task    = asyncio.create_task(build_and_run_pipeline())
     server_task      = asyncio.create_task(server.serve())
     broadcaster_task = asyncio.create_task(broadcaster_loop())
+    pyth_task        = asyncio.create_task(pyth_price_loop())
+    theta_task       = asyncio.create_task(theta_decay_loop())
 
     logging.info(f"Dashboard live at http://{DASHBOARD_HOST}:{DASHBOARD_PORT}")
 
     try:
-        await asyncio.gather(pipeline_task, server_task, broadcaster_task)
+        await asyncio.gather(pipeline_task, server_task, broadcaster_task, pyth_task, theta_task)
     except (KeyboardInterrupt, asyncio.CancelledError):
         server.should_exit = True
         pipeline_task.cancel()
         broadcaster_task.cancel()
-        await asyncio.gather(pipeline_task, server_task, broadcaster_task, return_exceptions=True)
+        pyth_task.cancel()
+        theta_task.cancel()
+        await asyncio.gather(
+            pipeline_task, server_task, broadcaster_task, pyth_task, theta_task,
+            return_exceptions=True,
+        )
 
 
 if __name__ == "__main__":

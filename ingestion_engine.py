@@ -22,9 +22,15 @@ import sys
 import asyncio
 import json
 import logging
+import ssl
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Awaitable
+
+# SSL context that skips certificate verification (macOS cert bundle fix)
+_SSL_NO_VERIFY = ssl.create_default_context()
+_SSL_NO_VERIFY.check_hostname = False
+_SSL_NO_VERIFY.verify_mode = ssl.CERT_NONE
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1.  LOCAL NAUTILUS PATH SETUP
@@ -443,7 +449,8 @@ class TokenDiscovery:
     async def run(self) -> None:
         """Continuous discovery loop — run as an asyncio Task."""
         self._log.info("[Discovery] Token discovery loop started")
-        async with aiohttp.ClientSession() as session:
+        connector = aiohttp.TCPConnector(ssl=_SSL_NO_VERIFY)
+        async with aiohttp.ClientSession(connector=connector) as session:
             while True:
                 try:
                     await self._poll(session)
@@ -658,6 +665,7 @@ class MarketFeed:
                     ping_interval=20,
                     ping_timeout=30,
                     close_timeout=5,
+                    ssl=_SSL_NO_VERIFY,
                 ) as ws:
                     self._ws_conn = ws
                     self._last_recv_ts = time.time()
@@ -673,6 +681,14 @@ class MarketFeed:
                         self._log.info(
                             f"[Feed] Subscribed to {len(self._subs)} tokens"
                         )
+                        # Drain _pending_q: init_msg already covers all subs.
+                        # Without this, _fb_subscribe_loop would send duplicates
+                        # causing Polymarket to return "INVALID OPERATION".
+                        while not self._pending_q.empty():
+                            try:
+                                self._pending_q.get_nowait()
+                            except asyncio.QueueEmpty:
+                                break
 
                     # Run recv, dynamic-subscribe, and watchdog concurrently.
                     # Any one raising cancels the others → outer except reconnects.

@@ -41,6 +41,11 @@
     }
     .flash-yes { animation: flash-yes 0.35s ease-out; }
     .flash-no  { animation: flash-no  0.35s ease-out; }
+    @keyframes cutoff-pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.35; }
+    }
+    .cutoff-blink { animation: cutoff-pulse 0.7s ease-in-out infinite; }
     .dot-live  { animation: pulse 1.5s cubic-bezier(0.4,0,0.6,1) infinite; }
     .devbar-fill { transition: width 0.3s ease, left 0.3s ease; }
     ::-webkit-scrollbar { width: 4px; }
@@ -90,6 +95,27 @@
   <div id="rollover-banner"
        class="hidden mb-3 px-3 py-2 rounded-lg bg-warn/10 border border-warn/40 text-warn text-xs flex items-center gap-2">
     <span>🔄</span><span id="rollover-msg">Rollover…</span>
+  </div>
+
+  <!-- ─── Cutoff Banner ───────────────────────────────────────────────────── -->
+  <div id="cutoff-banner"
+       class="hidden mb-3 px-3 py-2 rounded-lg border flex items-center gap-2 text-xs font-semibold"
+       style="background:rgba(248,81,73,0.12);border-color:rgba(248,81,73,0.5);color:#f85149">
+    <span class="cutoff-blink">⚠</span>
+    <span>HARD CUTOFF ACTIVE — T ≤ 90s — ALL QUOTES CANCELLED · OBSERVE ONLY</span>
+  </div>
+
+  <!-- ─── BTC Price Strip ─────────────────────────────────────────────────── -->
+  <div class="flex items-center gap-6 mb-3 px-3 py-2 rounded-lg bg-card border border-border text-xs">
+    <div>
+      <span class="text-muted">Price to beat</span>
+      <span id="btc-price-to-beat" class="ml-2 font-bold text-white tabular-nums">—</span>
+    </div>
+    <div>
+      <span class="text-muted">Current price</span>
+      <span id="btc-current" class="ml-2 font-bold tabular-nums text-white">—</span>
+      <span id="btc-delta" class="ml-1 text-xs tabular-nums"></span>
+    </div>
   </div>
 
   <!-- ─── TTL Bar ──────────────────────────────────────────────────────────── -->
@@ -176,6 +202,147 @@
 
   </div>
 
+  <!-- ─── BS Kernel / Strategy Panel ─────────────────────────────────────────── -->
+  <div class="bg-card rounded-xl border border-border p-3 mb-3">
+    <div class="flex items-center justify-between mb-2">
+      <p class="text-[10px] text-muted uppercase tracking-wider font-semibold">Pricing Kernel · YES</p>
+      <div class="flex items-center gap-2 text-[10px]">
+        <span class="text-muted">σ<sub>b</sub></span>
+        <span id="bs-sigma-b" class="text-white tabular-nums font-semibold">—</span>
+        <span class="text-muted ml-2">τ</span>
+        <span id="bs-tau" class="text-white tabular-nums">—</span>
+      </div>
+    </div>
+
+    <!-- Kernel inputs row -->
+    <div class="flex items-center gap-4 text-[10px] mb-2 text-muted font-mono">
+      <span>K <span id="bs-strike-k" class="text-white font-semibold">—</span></span>
+      <span>S <span id="bs-spot" class="text-white font-semibold">—</span></span>
+      <span class="ml-auto">src <span id="bs-fair-source" class="text-accent">—</span></span>
+    </div>
+
+    <!-- Dual table -->
+    <div class="overflow-x-auto">
+      <table class="w-full text-[11px] font-mono border-separate" style="border-spacing: 0">
+        <thead>
+          <tr class="text-[10px] text-muted uppercase tracking-wider">
+            <th class="text-left pb-1 pr-2 font-normal">Source</th>
+            <th class="text-right pb-1 px-2 font-normal">Bid</th>
+            <th class="text-right pb-1 px-2 font-normal">Ask</th>
+            <th class="text-right pb-1 px-2 font-normal">Mid / Fair</th>
+            <th class="text-right pb-1 pl-2 font-normal">Spread</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Row 1: Real Market -->
+          <tr class="border-t border-border/50">
+            <td class="py-1.5 pr-2 text-muted font-semibold">REAL MKT</td>
+            <td class="py-1.5 px-2 text-right tabular-nums text-yes font-semibold" id="kt-real-bid">—</td>
+            <td class="py-1.5 px-2 text-right tabular-nums text-no font-semibold"  id="kt-real-ask">—</td>
+            <td class="py-1.5 px-2 text-right tabular-nums text-white"             id="kt-real-mid">—</td>
+            <td class="py-1.5 pl-2 text-right tabular-nums text-warn"              id="kt-real-sprd">—</td>
+          </tr>
+          <!-- Row 2: BS Kernel -->
+          <tr class="border-t border-border/50">
+            <td class="py-1.5 pr-2 text-accent font-semibold">BS KERNEL</td>
+            <td class="py-1.5 px-2 text-right tabular-nums text-yes font-semibold" id="kt-bs-bid">—</td>
+            <td class="py-1.5 px-2 text-right tabular-nums text-no font-semibold"  id="kt-bs-ask">—</td>
+            <td class="py-1.5 px-2 text-right tabular-nums text-accent font-semibold" id="kt-bs-fair">—</td>
+            <td class="py-1.5 pl-2 text-right tabular-nums text-warn"              id="kt-bs-sprd">—</td>
+          </tr>
+          <!-- Row 3: Strategy -->
+          <tr class="border-t border-border/50">
+            <td class="py-1.5 pr-2 text-muted font-semibold">STRATEGY</td>
+            <td class="py-1.5 px-2 text-right tabular-nums font-semibold" id="kt-strat-bid">—</td>
+            <td class="py-1.5 px-2 text-right tabular-nums font-semibold" id="kt-strat-ask">—</td>
+            <td class="py-1.5 px-2 text-right" id="kt-strat-note" colspan="1">—</td>
+            <td class="py-1.5 pl-2 text-right" id="kt-strat-action-cell"></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Action signal bar -->
+    <div id="action-bar" class="mt-2 hidden px-3 py-1.5 rounded-lg text-xs font-mono font-semibold flex items-center gap-2">
+      <span id="action-icon">▶</span>
+      <span id="action-label">—</span>
+    </div>
+  </div>
+
+  <!-- ─── Analytics Panel ─────────────────────────────────────────────────── -->
+  <div class="bg-card rounded-xl border border-border p-3 mb-3">
+    <div class="flex items-center justify-between mb-2">
+      <p class="text-[10px] text-muted uppercase tracking-wider font-semibold">Volatility Analytics</p>
+      <span id="an-rv-samples" class="text-[10px] text-muted">— samples</span>
+    </div>
+    <div class="grid grid-cols-4 gap-2 text-center">
+      <!-- RV -->
+      <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
+        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">RV (5m)</p>
+        <p id="an-rv" class="text-sm font-bold text-white tabular-nums">—</p>
+      </div>
+      <!-- IV -->
+      <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
+        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">IV</p>
+        <p id="an-iv" class="text-sm font-bold text-white tabular-nums">—</p>
+      </div>
+      <!-- Vol Gap -->
+      <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
+        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">Vol Gap</p>
+        <p id="an-vol-gap" class="text-sm font-bold tabular-nums">—</p>
+      </div>
+      <!-- Vega -->
+      <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
+        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">Vega</p>
+        <p id="an-vega" class="text-sm font-bold text-muted tabular-nums">—</p>
+      </div>
+    </div>
+    <!-- Mkt price for analytics reference -->
+    <div class="flex items-center gap-3 mt-2 text-[10px] text-muted font-mono">
+      <span>Mkt price used: <span id="an-mkt-price" class="text-white">—</span></span>
+      <span class="ml-auto text-[9px]">RV feeds σ_BTC in pricer</span>
+    </div>
+  </div>
+
+  <!-- ─── Paper Trading Panel ─────────────────────────────────────────────── -->
+  <div class="bg-card rounded-xl border border-border p-3 mb-3">
+    <div class="flex items-center justify-between mb-2">
+      <p class="text-[10px] text-muted uppercase tracking-wider font-semibold">Paper Trading</p>
+      <div class="flex items-center gap-2 text-[10px]">
+        <span class="text-muted">trades</span>
+        <span id="pt-trades" class="text-white font-semibold tabular-nums">0</span>
+        <span class="text-muted ml-2">last</span>
+        <span id="pt-last-action" class="text-white tabular-nums">—</span>
+      </div>
+    </div>
+    <div class="grid grid-cols-4 gap-2 text-center">
+      <!-- Position -->
+      <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
+        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">Position</p>
+        <p id="pt-position" class="text-sm font-bold text-white tabular-nums">FLAT</p>
+      </div>
+      <!-- Avg Entry -->
+      <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
+        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">Avg Entry</p>
+        <p id="pt-avg-entry" class="text-sm font-bold text-white tabular-nums">—</p>
+      </div>
+      <!-- Unrealized P&L -->
+      <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
+        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">uPnL</p>
+        <p id="pt-upnl" class="text-sm font-bold tabular-nums">—</p>
+      </div>
+      <!-- Total P&L -->
+      <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
+        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">Total PnL</p>
+        <p id="pt-total-pnl" class="text-sm font-bold tabular-nums">—</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-3 mt-2 text-[10px] text-muted font-mono">
+      <span>rPnL: <span id="pt-rpnl" class="text-white">—</span></span>
+      <span class="ml-auto text-[9px]">1 share per signal · max ±10</span>
+    </div>
+  </div>
+
   <!-- ─── Convergence Bar ───────────────────────────────────────────────────── -->
   <div class="bg-card rounded-xl border border-border p-4 mb-3">
     <div class="flex items-center justify-between mb-2">
@@ -258,6 +425,23 @@
     if (d.question)         setText('market-question', d.question);
     if (d.end_timestamp_ms) endTimestampMs = d.end_timestamp_ms;
 
+    // BTC price strip
+    if (d.price_to_beat != null && d.price_to_beat > 0) {
+      setText('btc-price-to-beat', '$' + d.price_to_beat.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}));
+    }
+    if (d.btc_current) {
+      const cur = d.btc_current;
+      const ptb = d.price_to_beat || 0;
+      setText('btc-current', '$' + cur.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}));
+      if (ptb) {
+        const delta = cur - ptb;
+        const sign  = delta >= 0 ? '+' : '';
+        const el = document.getElementById('btc-delta');
+        el.textContent = `(${sign}$${delta.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})})`;
+        el.style.color = delta >= 0 ? '#3fb950' : '#f85149';
+      }
+    }
+
     // YES card
     setText('yes-mid',    fmt4(d.yes_mid));
     setText('yes-spread', fmt4(d.yes_spread));
@@ -282,6 +466,23 @@
     // Convergence
     updateConvergence(d.price_sum, d.price_deviation);
     updateSync(d.ts_spread_ms);
+
+    // BS Kernel panel
+    if (d.bs_fair != null) updateKernelPanel(d);
+
+    // Cutoff banner
+    const cutoffBanner = document.getElementById('cutoff-banner');
+    if (d.bs_cutoff) {
+      cutoffBanner.classList.remove('hidden');
+    } else {
+      cutoffBanner.classList.add('hidden');
+    }
+
+    // Analytics panel — always update (shows "—" while data builds up)
+    updateAnalyticsPanel(d);
+
+    // Paper trading panel
+    updatePaperPanel(d);
   }
 
   // ── Order book renderer ───────────────────────────────────────────────────
@@ -381,11 +582,25 @@
     setText('ttl-label', `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`);
     const pct = Math.min((remMs / marketDurationMs) * 100, 100);
     document.getElementById('ttl-bar').style.width = `${pct}%`;
-    // colour transition: green → warn → red as time runs out
+    // colour transition: green → warn → red + blink at cutoff (≤90s)
     const bar = document.getElementById('ttl-bar');
-    if (remS < 30)      bar.style.background = '#f85149';
-    else if (remS < 120) bar.style.background = '#d29922';
-    else                 bar.style.background = '#58a6ff';
+    const ttlLabel = document.getElementById('ttl-label');
+    if (remS <= 90) {
+      bar.style.background = '#f85149';
+      bar.classList.add('cutoff-blink');
+      ttlLabel.classList.add('cutoff-blink');
+      ttlLabel.style.color = '#f85149';
+    } else if (remS < 120) {
+      bar.style.background = '#d29922';
+      bar.classList.remove('cutoff-blink');
+      ttlLabel.classList.remove('cutoff-blink');
+      ttlLabel.style.color = '#d29922';
+    } else {
+      bar.style.background = '#58a6ff';
+      bar.classList.remove('cutoff-blink');
+      ttlLabel.classList.remove('cutoff-blink');
+      ttlLabel.style.color = '';
+    }
   }
   setInterval(tickTTL, 1000);
 
@@ -410,6 +625,187 @@
     line.textContent = `${now}  ${msg}`;
     feed.prepend(line);
     while (feed.children.length > 80) feed.removeChild(feed.lastChild);
+  }
+
+  // ── BS Kernel Panel ────────────────────────────────────────────────────────
+  function updateKernelPanel(d) {
+    const realBid  = d.yes_bid  ?? 0;
+    const realAsk  = d.yes_ask  ?? 0;
+    const realMid  = (realBid + realAsk) / 2;
+    const realSprd = realAsk - realBid;
+
+    const bsBid  = d.bs_bid  ?? 0;
+    const bsAsk  = d.bs_ask  ?? 0;
+    const bsFair = d.bs_fair ?? 0;
+    const bsSprd = bsAsk - bsBid;
+
+    // Row 1 – Real market
+    setText('kt-real-bid',  realBid  ? realBid.toFixed(4)  : '—');
+    setText('kt-real-ask',  realAsk  ? realAsk.toFixed(4)  : '—');
+    setText('kt-real-mid',  realMid  ? realMid.toFixed(4)  : '—');
+    setText('kt-real-sprd', realSprd ? realSprd.toFixed(4) : '—');
+
+    // Row 2 – BS Kernel
+    setText('kt-bs-bid',   bsBid  ? bsBid.toFixed(4)  : '—');
+    setText('kt-bs-ask',   bsAsk  ? bsAsk.toFixed(4)  : '—');
+    setText('kt-bs-fair',  bsFair ? bsFair.toFixed(4) : '—');
+    setText('kt-bs-sprd',  bsSprd ? bsSprd.toFixed(4) : '—');
+
+    // Row 3 – Strategy
+    const action = d.bs_action || 'WAIT';
+    const ap     = d.bs_action_price;
+
+    const stratBidEl = document.getElementById('kt-strat-bid');
+    const stratAskEl = document.getElementById('kt-strat-ask');
+    const noteEl     = document.getElementById('kt-strat-note');
+
+    if (action === 'BID' && ap != null) {
+      stratBidEl.textContent = ap.toFixed(3);
+      stratBidEl.style.color = '#3fb950';
+      stratAskEl.textContent = '—';
+      stratAskEl.style.color = '';
+      noteEl.textContent = 'Beat the market';
+    } else if (action === 'ASK' && ap != null) {
+      stratBidEl.textContent = '—';
+      stratBidEl.style.color = '';
+      stratAskEl.textContent = ap.toFixed(3);
+      stratAskEl.style.color = '#f85149';
+      noteEl.textContent = 'Beat the market';
+    } else {
+      stratBidEl.textContent = '—';
+      stratAskEl.textContent = '—';
+      stratBidEl.style.color = '';
+      stratAskEl.style.color = '';
+      noteEl.textContent = 'Waiting…';
+    }
+
+    // Action signal bar
+    const bar    = document.getElementById('action-bar');
+    const icon   = document.getElementById('action-icon');
+    const label  = document.getElementById('action-label');
+    bar.classList.remove('hidden');
+    if (action === 'CUTOFF') {
+      bar.className = 'mt-2 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold flex items-center gap-2 cutoff-blink';
+      bar.style.cssText = 'margin-top:0.5rem;padding:0.375rem 0.75rem;border-radius:0.5rem;font-size:0.75rem;font-family:monospace;font-weight:600;display:flex;align-items:center;gap:0.5rem;background:rgba(248,81,73,0.15);border:1px solid rgba(248,81,73,0.5);color:#f85149;animation:cutoff-pulse 0.7s ease-in-out infinite';
+      icon.textContent = '⚠';
+      label.textContent = 'CANCEL ALL & WAIT — T ≤ 90s — Pin Risk Protection Active';
+    } else if (action === 'BID') {
+      bar.style.cssText = '';
+      bar.className = 'mt-2 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold flex items-center gap-2 bg-yes/10 border border-yes/30 text-yes';
+      icon.textContent = '▲';
+      label.textContent = `BID @ ${ap != null ? ap.toFixed(3) : '—'}  (beat mkt bid ${realBid.toFixed(3)})`;
+    } else if (action === 'ASK') {
+      bar.style.cssText = '';
+      bar.className = 'mt-2 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold flex items-center gap-2 bg-no/10 border border-no/30 text-no';
+      icon.textContent = '▼';
+      label.textContent = `ASK @ ${ap != null ? ap.toFixed(3) : '—'}  (beat mkt ask ${realAsk.toFixed(3)})`;
+    } else {
+      bar.style.cssText = '';
+      bar.className = 'mt-2 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold flex items-center gap-2 bg-border/50 border border-border text-muted';
+      icon.textContent = '◆';
+      label.textContent = `WAIT  — BS fair ${bsFair.toFixed(4)}  inside market spread`;
+    }
+
+    // Sigma_b and tau
+    if (d.bs_sigma_b != null) setText('bs-sigma-b', d.bs_sigma_b.toFixed(3));
+    if (d.bs_tau_secs != null) {
+      const t = d.bs_tau_secs;
+      const m = Math.floor(t / 60), s = Math.round(t % 60);
+      setText('bs-tau', `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`);
+    }
+
+    // Kernel inputs (K, S, source)
+    if (d.bs_strike_k != null && d.bs_strike_k > 0)
+      setText('bs-strike-k', '$' + d.bs_strike_k.toLocaleString('en-US', {minimumFractionDigits:0, maximumFractionDigits:0}));
+    if (d.bs_btc_spot != null && d.bs_btc_spot > 0)
+      setText('bs-spot', '$' + d.bs_btc_spot.toLocaleString('en-US', {minimumFractionDigits:0, maximumFractionDigits:0}));
+    if (d.bs_fair_source != null) {
+      const srcEl = document.getElementById('bs-fair-source');
+      srcEl.textContent = d.bs_fair_source;
+      srcEl.style.color = d.bs_fair_source === 'lognormal' ? '#58a6ff'
+                        : d.bs_fair_source === 'market_mid' ? '#d29922'
+                        : '#8b949e';
+    }
+  }
+
+  // ── Analytics Panel ────────────────────────────────────────────────────────
+  function updateAnalyticsPanel(d) {
+    // RV
+    if (d.an_rv != null) {
+      setText('an-rv', d.an_rv.toFixed(1) + '%');
+    }
+    // IV
+    if (d.an_iv != null) {
+      setText('an-iv', d.an_iv.toFixed(1) + '%');
+    }
+    // Vol Gap (RV - IV): green = market under-pricing vol, red = over-pricing
+    if (d.an_vol_gap != null) {
+      const gapEl = document.getElementById('an-vol-gap');
+      const gap = d.an_vol_gap;
+      gapEl.textContent = (gap >= 0 ? '+' : '') + gap.toFixed(1) + '%';
+      gapEl.style.color = gap > 0 ? '#3fb950' : gap < 0 ? '#f85149' : '#8b949e';
+    }
+    // Vega
+    if (d.an_vega != null) {
+      setText('an-vega', d.an_vega.toFixed(4));
+    }
+    // Sample count
+    if (d.an_rv_n != null) {
+      setText('an-rv-samples', d.an_rv_n + ' samples');
+    }
+    // Market price used
+    if (d.yes_bid != null && d.yes_ask != null) {
+      const mid = ((d.yes_bid + d.yes_ask) / 2);
+      setText('an-mkt-price', mid.toFixed(2));
+    }
+  }
+
+  // ── Paper Trading Panel ────────────────────────────────────────────────────
+  function updatePaperPanel(d) {
+    // Position
+    const pos = d.pt_position ?? 0;
+    const posEl = document.getElementById('pt-position');
+    if (pos === 0) {
+      posEl.textContent = 'FLAT';
+      posEl.style.color = '#8b949e';
+    } else {
+      posEl.textContent = (pos > 0 ? '+' : '') + pos.toFixed(1) + ' YES';
+      posEl.style.color = pos > 0 ? '#3fb950' : '#f85149';
+    }
+
+    // Avg Entry
+    if (d.pt_avg_entry != null) {
+      setText('pt-avg-entry', d.pt_avg_entry.toFixed(4));
+    } else {
+      setText('pt-avg-entry', '—');
+    }
+
+    // Unrealized P&L
+    const upnlEl = document.getElementById('pt-upnl');
+    if (d.pt_upnl != null) {
+      upnlEl.textContent = (d.pt_upnl >= 0 ? '+' : '') + d.pt_upnl.toFixed(4);
+      upnlEl.style.color = d.pt_upnl > 0 ? '#3fb950' : d.pt_upnl < 0 ? '#f85149' : '#8b949e';
+    }
+
+    // Total P&L
+    const totalEl = document.getElementById('pt-total-pnl');
+    if (d.pt_total_pnl != null) {
+      totalEl.textContent = (d.pt_total_pnl >= 0 ? '+' : '') + d.pt_total_pnl.toFixed(4);
+      totalEl.style.color = d.pt_total_pnl > 0 ? '#3fb950' : d.pt_total_pnl < 0 ? '#f85149' : '#8b949e';
+    }
+
+    // Realized P&L
+    const rpnlEl = document.getElementById('pt-rpnl');
+    if (d.pt_rpnl != null) {
+      rpnlEl.textContent = (d.pt_rpnl >= 0 ? '+' : '') + d.pt_rpnl.toFixed(4);
+      rpnlEl.style.color = d.pt_rpnl > 0 ? '#3fb950' : d.pt_rpnl < 0 ? '#f85149' : '#8b949e';
+    }
+
+    // Trade count
+    if (d.pt_trades != null) setText('pt-trades', d.pt_trades);
+
+    // Last action
+    if (d.pt_last_action != null) setText('pt-last-action', d.pt_last_action);
   }
 
   // ── Start ──────────────────────────────────────────────────────────────────
