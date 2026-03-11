@@ -32,9 +32,44 @@ import time
 from pathlib import Path
 from typing import Any
 
+_MARKET_STATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "market_state.json")
+
+
+def _save_market_state(strike_k: float) -> None:
+    """Persist strike_k so it survives bot restarts within the same market session."""
+    try:
+        with open(_MARKET_STATE_PATH, "w") as fh:
+            json.dump({"strike_k": strike_k, "saved_at": time.time()}, fh)
+    except Exception:
+        pass
+
+
+def _load_market_state() -> float:
+    """
+    Return strike_k from state file if saved within the last 15 minutes
+    (a single Polymarket 15-min session).  Returns 0.0 if stale or missing.
+    """
+    try:
+        if not os.path.isfile(_MARKET_STATE_PATH):
+            return 0.0
+        with open(_MARKET_STATE_PATH) as fh:
+            data = json.load(fh)
+        age = time.time() - data.get("saved_at", 0)
+        if age > 900:          # older than one full market session → discard
+            return 0.0
+        k = float(data.get("strike_k", 0.0))
+        if k > 0:
+            logging.getLogger("System").info(
+                "[SYSTEM] Restored strike_k=%.2f from state file (age=%.0fs)", k, age
+            )
+        return k
+    except Exception:
+        return 0.0
+
 from strategy_engine import PredictionMarketPricer
 from analytics_engine import AnalyticsEngine
-from paper_trader import PaperTrader
+from paper_trading_engine import PaperTradingEngine
+from telegram_notifier import TelegramNotifier
 
 # SSL context that skips certificate verification (macOS cert bundle fix)
 _SSL_NO_VERIFY = ssl.create_default_context()
@@ -92,7 +127,8 @@ _book_dirty: bool = False
 _btc_current: float = 0.0
 
 # priceToBeat captured at rollover moment (Pyth price = BTC at market boundary)
-_ptb_at_rollover: float = 0.0
+# Pre-seeded from state file so a restart mid-session doesn't lose the strike K.
+_ptb_at_rollover: float = _load_market_state()
 
 # ── Strategy / Kernel layer ───────────────────────────────────────────────────
 # Single pricer instance shared across all async tasks (all run on same loop)
@@ -103,8 +139,15 @@ _strategy_log = logging.getLogger("Strategy")
 _analytics: AnalyticsEngine = AnalyticsEngine()
 _analytics_log = logging.getLogger("Analytics")
 
+# ── Telegram notifier ──────────────────────────────────────────────────────────
+_tg_notifier = TelegramNotifier(
+    token       = "8603640008:AAEh8FmkjgOQhNQH1WnhHkKjO815Yz8ko-Y",
+    chat_id     = ["172349632", "971957662"],
+    asset_label = "BTC 15m",
+)
+
 # ── Paper trading layer ────────────────────────────────────────────────────────
-_paper: PaperTrader = PaperTrader()
+_pte: PaperTradingEngine = PaperTradingEngine(notifier=_tg_notifier)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # BRIDGE FUNCTION: called by the MM pipeline on every tick
@@ -152,6 +195,7 @@ async def publish_yesno_tick(ynt: YesNoMarketTick) -> None:
                     strike_k=k,
                     seconds_to_expiry=mkt.seconds_to_expiry,
                 )
+                _save_market_state(k)
             else:
                 # No K available yet — at least seed tau so A-S spreads are correct
                 _pricer.tau_secs = max(0.0, mkt.seconds_to_expiry)
@@ -176,6 +220,12 @@ async def publish_yesno_tick(ynt: YesNoMarketTick) -> None:
     d["bs_btc_spot"]     = quote.btc_spot
     d["bs_strike_k"]     = quote.strike_k
     d["bs_cutoff"]       = _pricer.in_cutoff   # True when T ≤ HARD_CUTOFF_SECONDS
+    # NO/DOWN kernel (derived by complement)
+    d["bs_no_fair"]         = quote.no_fair_price
+    d["bs_no_bid"]          = quote.no_theoretical_bid
+    d["bs_no_ask"]          = quote.no_theoretical_ask
+    d["bs_no_action"]       = quote.no_action
+    d["bs_no_action_price"] = quote.no_action_price
 
     if price_changed:
         _strategy_log.info(_pricer.format_log_line(ynt.yes_bid, ynt.yes_ask, quote))
@@ -186,9 +236,13 @@ async def publish_yesno_tick(ynt: YesNoMarketTick) -> None:
     d["an_iv"]      = None
     d["an_vol_gap"] = None
     d["an_vega"]    = None
+    d["an_delta"]   = None
+    d["an_gamma"]   = None
+    d["an_theta"]   = None
     d["an_rv_n"]    = len(_analytics._price_log)
 
     # Full compute only when K, S, and T are all known.
+    snap = None
     if _pricer.strike_k > 0 and _pricer.btc_spot > 0 and _pricer.tau_secs >= 1.0:
         snap = _analytics.compute(
             btc_spot  = _pricer.btc_spot,
@@ -206,36 +260,72 @@ async def publish_yesno_tick(ynt: YesNoMarketTick) -> None:
             d["an_rv"]      = round(snap.rv * 100, 2)      if snap.rv      is not None else None
             d["an_iv"]      = round(snap.iv * 100, 2)      if snap.iv      is not None else None
             d["an_vol_gap"] = round(snap.vol_gap * 100, 2) if snap.vol_gap is not None else None
-            d["an_vega"]    = round(snap.vega, 4)          if snap.vega    is not None else None
+            d["an_vega"]    = round(snap.vega,  4)         if snap.vega    is not None else None
+            d["an_delta"]   = round(snap.delta, 6)         if snap.delta   is not None else None
+            d["an_gamma"]   = snap.gamma                   if snap.gamma   is not None else None
+            d["an_theta"]   = round(snap.theta, 6)         if snap.theta   is not None else None
             d["an_rv_n"]    = snap.rv_samples
 
-    # ── Paper trading layer ───────────────────────────────────────────────────
-    current_mid = (ynt.yes_bid + ynt.yes_ask) / 2.0 if ynt.yes_bid and ynt.yes_ask else 0.5
-    mkt_id = ""
-    if _manager_ref is not None and _manager_ref.current_market:
-        mkt_id = _manager_ref.current_market.condition_id
+    # ── Paper trading layer (PaperTradingEngine) ─────────────────────────────
+    _bs_fair_yes_safe = quote.fair_price if quote.fair_price is not None else 0.5
+    _mkt_bid_yes_safe = ynt.yes_bid      if ynt.yes_bid      is not None else 0.5
+    _mkt_ask_yes_safe = ynt.yes_ask      if ynt.yes_ask      is not None else 0.5
 
-    if quote.action == "CUTOFF":
-        # Close any open paper position at current mid (simulate cancel-all)
-        if _paper.position != 0.0:
-            _paper.reset_market(mkt_id=mkt_id, close_at_mid=current_mid)
-    elif price_changed:
-        _paper.try_execute(
-            action       = quote.action,
-            action_price = quote.action_price,
-            current_mid  = current_mid,
-            mkt_id       = mkt_id,
-        )
+    _pte.update_tick(
+        bs_fair_yes    = _bs_fair_yes_safe,
+        mkt_bid_yes    = _mkt_bid_yes_safe,
+        mkt_ask_yes    = _mkt_ask_yes_safe,
+        time_to_expiry = _pricer.tau_secs,
+        vega           = d["an_vega"],   # None when tau < 5s or IV unavailable
+        iv             = snap.iv if (snap is not None) else None,  # raw 0-1 for notifier
+    )
 
-    pt_stats = _paper.stats(current_mid)
-    d["pt_position"]    = pt_stats.position
-    d["pt_avg_entry"]   = pt_stats.avg_entry
+    # Actual taker edges the engine computes (for UI transparency)
+    _fair_r = round(_bs_fair_yes_safe, 2)  # matches _round_tick inside PTE
+    _long_yes_edge = round(_fair_r - _mkt_ask_yes_safe, 4)
+    _long_no_edge  = round(_mkt_bid_yes_safe - _fair_r, 4)
+    d["pt_long_yes_edge"] = _long_yes_edge
+    d["pt_long_no_edge"]  = _long_no_edge
+    d["pt_min_edge"]      = _pte.min_edge   # current effective threshold
+
+    pt_stats = _pte.stats(
+        mkt_bid_yes = _mkt_bid_yes_safe,
+        mkt_ask_yes = _mkt_ask_yes_safe,
+    )
+    d["pt_balance"]     = pt_stats.balance
+    d["pt_equity"]      = pt_stats.equity
+    d["pt_inventory"]   = pt_stats.inventory.value
+    d["pt_shares"]      = pt_stats.shares_open
+    d["pt_avg_entry"]   = pt_stats.entry_price
+    d["pt_exit_target"] = pt_stats.exit_target
+    d["pt_current_bid"] = pt_stats.current_bid
     d["pt_upnl"]        = pt_stats.unrealized_pnl
+    d["pt_uroi"]        = pt_stats.uroi_pct
     d["pt_rpnl"]        = pt_stats.realized_pnl
     d["pt_total_pnl"]   = pt_stats.total_pnl
     d["pt_trades"]      = pt_stats.trade_count
-    d["pt_last_action"] = pt_stats.last_action
-    d["pt_last_ts"]     = pt_stats.last_ts
+    d["pt_wins"]        = pt_stats.win_count
+    d["pt_losses"]      = pt_stats.loss_count
+    d["pt_last_close"]  = pt_stats.last_close
+    # Performance analytics
+    p = pt_stats.perf
+    if p:
+        d["pt_win_rate"]  = p.win_rate_pct
+        d["pt_pf"]        = p.profit_factor if p.profit_factor != float("inf") else 999.0
+        d["pt_avg_win"]   = p.avg_win
+        d["pt_avg_loss"]  = p.avg_loss
+        d["pt_max_dd"]    = p.max_drawdown_pct
+        d["pt_roi"]       = p.roi_pct
+        d["pt_sharpe"]    = p.sharpe_ratio
+    else:
+        for k in ("pt_win_rate", "pt_pf", "pt_avg_win", "pt_avg_loss", "pt_max_dd", "pt_roi", "pt_sharpe"):
+            d[k] = None
+    # Trade log (last 20 trades for UI table)
+    d["pt_trade_log"]      = pt_stats.trade_log[:20]
+    # Live open positions for UI portfolio panel
+    d["pt_open_positions"] = pt_stats.open_positions_list
+    # Full equity curve (all closed trades)
+    d["pt_equity_curve"]   = pt_stats.equity_curve
 
     _latest_tick_dict = d
     _book_dirty = True
@@ -361,8 +451,14 @@ async def publish_rollover(old: ActiveMarket, new: ActiveMarket) -> None:
         strike_k=new.price_to_beat,
         seconds_to_expiry=new.seconds_to_expiry,
     )
+    _save_market_state(new.price_to_beat)
     # Close paper position at last known mid and start fresh for new market
-    _paper.reset_market(mkt_id=new.condition_id, close_at_mid=None)
+    _pte.reset_market()
+    # Reset KDE microstructure buffer and start 60s entry warm-up
+    _pte.trigger_kde_rollover(warmup_secs=60.0)
+    logging.getLogger("System").warning(
+        "[SYSTEM] Rollover detected. KDE Reset. Waiting for warm-up…"
+    )
     d = {
         "type": "rollover",
         "old_condition_id": old.condition_id,
@@ -413,6 +509,16 @@ async def api_latest() -> JSONResponse:
     if _latest_tick_dict is None:
         return JSONResponse({"status": "no_data_yet"})
     return JSONResponse(_latest_tick_dict)
+
+
+@app.post("/api/reset-stats")
+async def api_reset_stats() -> JSONResponse:
+    """Reset paper trading stats: clear all trades, restore $10,000 balance, wipe CSV."""
+    _pte.reset_all_stats()
+    logging.getLogger("System").warning(
+        "[SYSTEM] Paper trading stats manually reset via /api/reset-stats"
+    )
+    return JSONResponse({"status": "ok", "message": "Stats reset. Balance restored to $10,000."})
 
 
 @app.get("/api/status")

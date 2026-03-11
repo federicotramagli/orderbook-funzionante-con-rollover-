@@ -52,6 +52,12 @@
     ::-webkit-scrollbar-track { background: #161b22; }
     ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
 
+    /* KDE panel */
+    .kde-cell   { background:#0a0d12; border:1px solid #21262d; border-radius:6px; padding:6px 8px; }
+    .kde-title  { font-size:9px; color:#8b949e; text-transform:uppercase; letter-spacing:.05em;
+                  margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .kde-canvas { width:100%!important; height:300px!important; display:block; }
+
     /* Order book rows */
     .ob-ask-row { background: rgba(248,81,73,0.06); }
     .ob-ask-row:first-child { background: rgba(248,81,73,0.14); }  /* best ask */
@@ -142,6 +148,12 @@
         <div class="flex items-center gap-3 text-xs">
           <span class="text-muted">mid</span>
           <span id="yes-mid" class="text-white font-semibold tabular-nums">—</span>
+          <span class="text-muted">bs</span>
+          <span id="yes-bs-bid" class="text-yes tabular-nums">—</span>
+          <span class="text-muted">/</span>
+          <span id="yes-bs-fair" class="text-accent font-semibold tabular-nums">—</span>
+          <span class="text-muted">/</span>
+          <span id="yes-bs-ask" class="text-no tabular-nums">—</span>
           <span class="text-muted">sprd</span>
           <span id="yes-spread" class="text-warn font-semibold tabular-nums">—</span>
         </div>
@@ -178,6 +190,12 @@
         <div class="flex items-center gap-3 text-xs">
           <span class="text-muted">mid</span>
           <span id="no-mid" class="text-white font-semibold tabular-nums">—</span>
+          <span class="text-muted">bs</span>
+          <span id="no-bs-bid" class="text-yes tabular-nums">—</span>
+          <span class="text-muted">/</span>
+          <span id="no-bs-fair" class="text-accent font-semibold tabular-nums">—</span>
+          <span class="text-muted">/</span>
+          <span id="no-bs-ask" class="text-no tabular-nums">—</span>
           <span class="text-muted">sprd</span>
           <span id="no-spread" class="text-warn font-semibold tabular-nums">—</span>
         </div>
@@ -230,6 +248,7 @@
             <th class="text-right pb-1 px-2 font-normal">Bid</th>
             <th class="text-right pb-1 px-2 font-normal">Ask</th>
             <th class="text-right pb-1 px-2 font-normal">Mid / Fair</th>
+            <th class="text-right pb-1 px-2 font-normal">Δ Mid</th>
             <th class="text-right pb-1 pl-2 font-normal">Spread</th>
           </tr>
         </thead>
@@ -240,22 +259,33 @@
             <td class="py-1.5 px-2 text-right tabular-nums text-yes font-semibold" id="kt-real-bid">—</td>
             <td class="py-1.5 px-2 text-right tabular-nums text-no font-semibold"  id="kt-real-ask">—</td>
             <td class="py-1.5 px-2 text-right tabular-nums text-white"             id="kt-real-mid">—</td>
+            <td class="py-1.5 px-2 text-right tabular-nums text-muted">—</td>
             <td class="py-1.5 pl-2 text-right tabular-nums text-warn"              id="kt-real-sprd">—</td>
           </tr>
-          <!-- Row 2: BS Kernel -->
+          <!-- Row 2: BS Kernel YES -->
           <tr class="border-t border-border/50">
-            <td class="py-1.5 pr-2 text-accent font-semibold">BS KERNEL</td>
+            <td class="py-1.5 pr-2 text-accent font-semibold">BS YES</td>
             <td class="py-1.5 px-2 text-right tabular-nums text-yes font-semibold" id="kt-bs-bid">—</td>
             <td class="py-1.5 px-2 text-right tabular-nums text-no font-semibold"  id="kt-bs-ask">—</td>
             <td class="py-1.5 px-2 text-right tabular-nums text-accent font-semibold" id="kt-bs-fair">—</td>
+            <td class="py-1.5 px-2 text-right tabular-nums font-semibold"          id="kt-bs-delta-yes">—</td>
             <td class="py-1.5 pl-2 text-right tabular-nums text-warn"              id="kt-bs-sprd">—</td>
           </tr>
-          <!-- Row 3: Strategy -->
+          <!-- Row 3: BS Kernel NO -->
+          <tr class="border-t border-border/50">
+            <td class="py-1.5 pr-2 text-muted font-semibold">BS NO</td>
+            <td class="py-1.5 px-2 text-right tabular-nums text-yes font-semibold" id="kt-bs-no-bid">—</td>
+            <td class="py-1.5 px-2 text-right tabular-nums text-no font-semibold"  id="kt-bs-no-ask">—</td>
+            <td class="py-1.5 px-2 text-right tabular-nums text-muted font-semibold" id="kt-bs-no-fair">—</td>
+            <td class="py-1.5 px-2 text-right tabular-nums font-semibold"          id="kt-bs-delta-no">—</td>
+            <td class="py-1.5 pl-2 text-right tabular-nums text-warn"              id="kt-bs-no-sprd">—</td>
+          </tr>
+          <!-- Row 4: Strategy -->
           <tr class="border-t border-border/50">
             <td class="py-1.5 pr-2 text-muted font-semibold">STRATEGY</td>
             <td class="py-1.5 px-2 text-right tabular-nums font-semibold" id="kt-strat-bid">—</td>
             <td class="py-1.5 px-2 text-right tabular-nums font-semibold" id="kt-strat-ask">—</td>
-            <td class="py-1.5 px-2 text-right" id="kt-strat-note" colspan="1">—</td>
+            <td class="py-1.5 px-2 text-right" id="kt-strat-note" colspan="2">—</td>
             <td class="py-1.5 pl-2 text-right" id="kt-strat-action-cell"></td>
           </tr>
         </tbody>
@@ -272,29 +302,41 @@
   <!-- ─── Analytics Panel ─────────────────────────────────────────────────── -->
   <div class="bg-card rounded-xl border border-border p-3 mb-3">
     <div class="flex items-center justify-between mb-2">
-      <p class="text-[10px] text-muted uppercase tracking-wider font-semibold">Volatility Analytics</p>
+      <p class="text-[10px] text-muted uppercase tracking-wider font-semibold">Volatility Analytics · Binary Greeks</p>
       <span id="an-rv-samples" class="text-[10px] text-muted">— samples</span>
     </div>
-    <div class="grid grid-cols-4 gap-2 text-center">
-      <!-- RV -->
+    <!-- Row 1: Vol surface -->
+    <div class="grid grid-cols-4 gap-2 text-center mb-2">
       <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
         <p class="text-[9px] text-muted uppercase tracking-wider mb-1">RV (5m)</p>
         <p id="an-rv" class="text-sm font-bold text-white tabular-nums">—</p>
       </div>
-      <!-- IV -->
       <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
         <p class="text-[9px] text-muted uppercase tracking-wider mb-1">IV</p>
         <p id="an-iv" class="text-sm font-bold text-white tabular-nums">—</p>
       </div>
-      <!-- Vol Gap -->
       <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
-        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">Vol Gap</p>
+        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">Vol Gap (RV−IV)</p>
         <p id="an-vol-gap" class="text-sm font-bold tabular-nums">—</p>
       </div>
-      <!-- Vega -->
       <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
-        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">Vega</p>
-        <p id="an-vega" class="text-sm font-bold text-muted tabular-nums">—</p>
+        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">Vega (ν)</p>
+        <p id="an-vega" class="text-sm font-bold tabular-nums">—</p>
+      </div>
+    </div>
+    <!-- Row 2: Greeks -->
+    <div class="grid grid-cols-3 gap-2 text-center">
+      <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
+        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">Delta (Δ) · per $1 BTC</p>
+        <p id="an-delta" class="text-sm font-bold text-white tabular-nums">—</p>
+      </div>
+      <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
+        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">Gamma (Γ) · Δ convexity</p>
+        <p id="an-gamma" class="text-sm font-bold text-white tabular-nums">—</p>
+      </div>
+      <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
+        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">Theta (Θ) · per min</p>
+        <p id="an-theta" class="text-sm font-bold tabular-nums">—</p>
       </div>
     </div>
     <!-- Mkt price for analytics reference -->
@@ -306,40 +348,164 @@
 
   <!-- ─── Paper Trading Panel ─────────────────────────────────────────────── -->
   <div class="bg-card rounded-xl border border-border p-3 mb-3">
+    <!-- Header -->
     <div class="flex items-center justify-between mb-2">
-      <p class="text-[10px] text-muted uppercase tracking-wider font-semibold">Paper Trading</p>
-      <div class="flex items-center gap-2 text-[10px]">
+      <p class="text-[10px] text-muted uppercase tracking-wider font-semibold">Paper Trading · 10,000 USDC</p>
+      <div class="flex items-center gap-2 text-[10px] font-mono">
         <span class="text-muted">trades</span>
-        <span id="pt-trades" class="text-white font-semibold tabular-nums">0</span>
-        <span class="text-muted ml-2">last</span>
-        <span id="pt-last-action" class="text-white tabular-nums">—</span>
+        <span id="pt-trades" class="text-white font-semibold">0</span>
+        <span class="text-muted">W</span><span id="pt-wins" class="text-green-400 font-semibold">0</span>
+        <span class="text-muted">L</span><span id="pt-losses" class="text-red-400 font-semibold">0</span>
+        <button id="btn-reset-stats" onclick="resetPaperStats()"
+          class="ml-2 px-2 py-0.5 rounded text-[9px] font-semibold bg-red-900/60 text-red-300 border border-red-700/50 hover:bg-red-800/80 active:scale-95 transition-all"
+          title="Reset balance to $10,000 and clear all trades">RESET</button>
       </div>
     </div>
-    <div class="grid grid-cols-4 gap-2 text-center">
-      <!-- Position -->
+    <!-- Row 1: Portfolio -->
+    <div class="grid grid-cols-4 gap-2 text-center mb-2">
+      <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
+        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">Balance</p>
+        <p id="pt-balance" class="text-sm font-bold text-white tabular-nums">$10,000</p>
+      </div>
+      <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
+        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">Equity</p>
+        <p id="pt-equity" class="text-sm font-bold text-white tabular-nums">$10,000</p>
+      </div>
       <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
         <p class="text-[9px] text-muted uppercase tracking-wider mb-1">Position</p>
         <p id="pt-position" class="text-sm font-bold text-white tabular-nums">FLAT</p>
       </div>
-      <!-- Avg Entry -->
       <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
-        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">Avg Entry</p>
-        <p id="pt-avg-entry" class="text-sm font-bold text-white tabular-nums">—</p>
+        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">Entry / Bid</p>
+        <p id="pt-avg-entry" class="text-sm font-bold text-white tabular-nums">— / —</p>
       </div>
-      <!-- Unrealized P&L -->
+    </div>
+    <!-- Row 2: PnL -->
+    <div class="grid grid-cols-4 gap-2 text-center mb-2">
       <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
-        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">uPnL</p>
+        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">uPnL ($)</p>
         <p id="pt-upnl" class="text-sm font-bold tabular-nums">—</p>
       </div>
-      <!-- Total P&L -->
+      <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
+        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">uROI (%)</p>
+        <p id="pt-uroi" class="text-sm font-bold tabular-nums">—</p>
+      </div>
+      <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
+        <p class="text-[9px] text-muted uppercase tracking-wider mb-1">rPnL ($)</p>
+        <p id="pt-rpnl" class="text-sm font-bold tabular-nums">—</p>
+      </div>
       <div class="bg-surface rounded-lg px-2 py-2 border border-border/60">
         <p class="text-[9px] text-muted uppercase tracking-wider mb-1">Total PnL</p>
         <p id="pt-total-pnl" class="text-sm font-bold tabular-nums">—</p>
       </div>
     </div>
-    <div class="flex items-center gap-3 mt-2 text-[10px] text-muted font-mono">
-      <span>rPnL: <span id="pt-rpnl" class="text-white">—</span></span>
-      <span class="ml-auto text-[9px]">1 share per signal · max ±10</span>
+    <!-- Row 3: Performance -->
+    <div class="grid grid-cols-7 gap-1 text-center mb-2">
+      <div class="bg-surface rounded px-1 py-1 border border-border/40">
+        <p class="text-[8px] text-muted uppercase mb-0.5">Win Rate</p>
+        <p id="pt-win-rate" class="text-xs font-bold text-white">—</p>
+      </div>
+      <div class="bg-surface rounded px-1 py-1 border border-border/40">
+        <p class="text-[8px] text-muted uppercase mb-0.5">Prof. Factor</p>
+        <p id="pt-pf" class="text-xs font-bold text-white">—</p>
+      </div>
+      <div class="bg-surface rounded px-1 py-1 border border-border/40">
+        <p class="text-[8px] text-muted uppercase mb-0.5">Avg Win</p>
+        <p id="pt-avg-win" class="text-xs font-bold text-green-400">—</p>
+      </div>
+      <div class="bg-surface rounded px-1 py-1 border border-border/40">
+        <p class="text-[8px] text-muted uppercase mb-0.5">Avg Loss</p>
+        <p id="pt-avg-loss" class="text-xs font-bold text-red-400">—</p>
+      </div>
+      <div class="bg-surface rounded px-1 py-1 border border-border/40">
+        <p class="text-[8px] text-muted uppercase mb-0.5">Max DD</p>
+        <p id="pt-max-dd" class="text-xs font-bold text-red-400">—</p>
+      </div>
+      <div class="bg-surface rounded px-1 py-1 border border-border/40">
+        <p class="text-[8px] text-muted uppercase mb-0.5">ROI</p>
+        <p id="pt-roi" class="text-xs font-bold text-white">—</p>
+      </div>
+      <div class="bg-surface rounded px-1 py-1 border border-border/40">
+        <p class="text-[8px] text-muted uppercase mb-0.5">Sharpe</p>
+        <p id="pt-sharpe" class="text-xs font-bold text-white">—</p>
+      </div>
+    </div>
+    <!-- Strategy Signal row: real taker edges vs threshold -->
+    <div class="flex items-center gap-2 text-[9px] font-mono mb-1 mt-1 px-1">
+      <span class="text-muted uppercase tracking-wider">Signal</span>
+      <span class="text-muted">YES edge</span>
+      <span id="pt-yes-edge" class="font-semibold tabular-nums">—</span>
+      <span class="text-muted ml-1">NO edge</span>
+      <span id="pt-no-edge" class="font-semibold tabular-nums">—</span>
+      <span class="text-muted ml-1">req</span>
+      <span id="pt-min-edge" class="text-white font-semibold tabular-nums">—</span>
+    </div>
+    <!-- Last close info -->
+    <div class="text-[9px] text-muted font-mono truncate" id="pt-last-close">No trades yet</div>
+
+    <!-- Active Positions Table -->
+    <div class="mt-2">
+      <div class="flex items-center justify-between mb-1">
+        <p class="text-[9px] text-muted uppercase tracking-wider">Active Positions</p>
+        <span id="pt-open-count" class="text-[9px] font-mono text-white">0 open</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-[9px] font-mono">
+          <thead>
+            <tr class="text-muted border-b border-border/40">
+              <th class="text-left py-0.5 pr-2">#</th>
+              <th class="text-left py-0.5 pr-2">Side</th>
+              <th class="text-right py-0.5 pr-2">Entry</th>
+              <th class="text-right py-0.5 pr-2">Bid</th>
+              <th class="text-right py-0.5 pr-2">Shares</th>
+              <th class="text-right py-0.5 pr-2">Cost $</th>
+              <th class="text-right py-0.5 pr-2">uPnL $</th>
+              <th class="text-right py-0.5 pr-2">uPnL %</th>
+              <th class="text-right py-0.5">Held</th>
+            </tr>
+          </thead>
+          <tbody id="pt-open-tbody">
+            <tr><td colspan="9" class="text-muted py-1 text-center">No open positions</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Trade Log Table -->
+    <div class="mt-2">
+      <p class="text-[9px] text-muted uppercase tracking-wider mb-1">Trade Log</p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-[9px] font-mono" id="pt-trade-table">
+          <thead>
+            <tr class="text-muted border-b border-border/40">
+              <th class="text-left py-0.5 pr-2">#</th>
+              <th class="text-left py-0.5 pr-2">Asset</th>
+              <th class="text-right py-0.5 pr-2">Entry</th>
+              <th class="text-right py-0.5 pr-2">Exit</th>
+              <th class="text-right py-0.5 pr-2">Shares</th>
+              <th class="text-right py-0.5 pr-2">PnL $</th>
+              <th class="text-right py-0.5 pr-2">PnL %</th>
+              <th class="text-right py-0.5 pr-2">Dur</th>
+              <th class="text-right py-0.5">Reason</th>
+            </tr>
+          </thead>
+          <tbody id="pt-trade-tbody">
+            <tr><td colspan="9" class="text-muted py-1 text-center">No trades yet</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Equity Curve Chart -->
+    <div class="mt-3">
+      <div class="flex items-center justify-between mb-1">
+        <p class="text-[9px] text-muted uppercase tracking-wider">Equity Curve</p>
+        <div class="flex items-center gap-3 text-[9px] font-mono">
+          <span class="flex items-center gap-1"><span style="display:inline-block;width:14px;height:2px;background:#3fb950"></span> Realized PnL</span>
+          <span class="flex items-center gap-1"><span style="display:inline-block;width:14px;height:2px;background:#17d4f5;opacity:0.75"></span> Total (incl. uPnL)</span>
+        </div>
+      </div>
+      <canvas id="equity-canvas" style="width:100%;height:480px;display:block;"></canvas>
     </div>
   </div>
 
@@ -374,6 +540,27 @@
     <div class="flex gap-2"><span class="text-muted w-24 shrink-0">Condition</span><span id="info-cond" class="text-accent break-all">—</span></div>
     <div class="flex gap-2"><span class="text-muted w-24 shrink-0">YES token</span><span id="info-yes-tok" class="text-yes break-all">—</span></div>
     <div class="flex gap-2"><span class="text-muted w-24 shrink-0">NO token</span><span id="info-no-tok" class="text-no break-all">—</span></div>
+  </div>
+
+  <!-- ─── Microstructure KDE Panel ─────────────────────────────────────────── -->
+  <div class="bg-card rounded-xl border border-border p-3 mb-3">
+    <div class="flex items-center justify-between mb-2">
+      <p class="text-[10px] text-muted uppercase tracking-wider font-semibold">BTC 15-Min Microstructure KDE</p>
+      <div class="flex items-center gap-3 text-[9px] font-mono">
+        <span class="flex items-center gap-1"><span style="display:inline-block;width:16px;height:2px;background:#17d4f5"></span> First 12 Min</span>
+        <span class="flex items-center gap-1"><span style="display:inline-block;width:16px;height:2px;background:#d440c8"></span> Last 3 Min</span>
+        <span class="flex items-center gap-1"><span style="display:inline-block;width:16px;height:2px;background:#f5c842"></span> Last 30s</span>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-2" id="kde-grid">
+      <div class="kde-cell"><p class="kde-title">Tick Intensity (Updates/Sec)</p><canvas id="kde-c-tick"    class="kde-canvas"></canvas></div>
+      <div class="kde-cell"><p class="kde-title">Sample Entropy (Spread)</p>      <canvas id="kde-c-sent"    class="kde-canvas"></canvas></div>
+      <div class="kde-cell"><p class="kde-title">Permutation Entropy</p>           <canvas id="kde-c-pent"    class="kde-canvas"></canvas></div>
+      <div class="kde-cell"><p class="kde-title">Contract Price Entropy</p>        <canvas id="kde-c-cpent"   class="kde-canvas"></canvas></div>
+      <div class="kde-cell"><p class="kde-title">Hurst Exponent (Trend &gt; 0.5)</p><canvas id="kde-c-hurst"  class="kde-canvas"></canvas></div>
+      <div class="kde-cell"><p class="kde-title">Microprice Divergence (BS−Mid)</p><canvas id="kde-c-mdivg"  class="kde-canvas"></canvas></div>
+    </div>
+    <p id="kde-status" class="text-[9px] text-muted mt-1 text-right">Collecting data…</p>
   </div>
 
   <!-- ─── Event log ─────────────────────────────────────────────────────────── -->
@@ -448,6 +635,9 @@
     setText('yes-spread-val', fmt4(d.yes_spread));
     setText('yes-src-lbl', d.source || '—');
     setText('yes-ts', relTime(d.yes_ts_ms));
+    if (d.bs_fair != null)  setText('yes-bs-fair', d.bs_fair.toFixed(4));
+    if (d.bs_bid  != null)  setText('yes-bs-bid',  d.bs_bid.toFixed(4));
+    if (d.bs_ask  != null)  setText('yes-bs-ask',  d.bs_ask.toFixed(4));
     renderBook('yes-asks', 'yes-bids', d.yes_asks || [], d.yes_bids || [], 'yes');
 
     // NO card
@@ -456,6 +646,10 @@
     setText('no-spread-val', fmt4(d.no_spread));
     setText('no-src-lbl', d.source || '—');
     setText('no-ts', relTime(d.no_ts_ms));
+    // NO BS values derived client-side: NO = 1 - YES (no-arbitrage complement)
+    if (d.bs_fair != null) setText('no-bs-fair', (1 - d.bs_fair).toFixed(4));
+    if (d.bs_ask  != null) setText('no-bs-bid',  (1 - d.bs_ask).toFixed(4));   // NO bid = 1 - YES ask
+    if (d.bs_bid  != null) setText('no-bs-ask',  (1 - d.bs_bid).toFixed(4));   // NO ask = 1 - YES bid
     renderBook('no-asks', 'no-bids', d.no_asks || [], d.no_bids || [], 'no');
 
     // Info strip
@@ -483,6 +677,12 @@
 
     // Paper trading panel
     updatePaperPanel(d);
+
+    // KDE microstructure panel
+    window._lastYesBid = d.yes_bid;
+    window._lastYesAsk = d.yes_ask;
+    window._lastBsFair = d.bs_fair;
+    kdeOnTick(d);
   }
 
   // ── Order book renderer ───────────────────────────────────────────────────
@@ -541,6 +741,20 @@
     endTimestampMs = 0;
     log(`ROLLOVER: ${d.old_condition_id.slice(0,14)}… → ${d.new_condition_id.slice(0,14)}…`);
     setTimeout(() => banner.classList.add('hidden'), 15000);
+
+    // ── KDE buffer reset on rollover ─────────────────────────────────────────
+    // Clear all microstructure buffers so the new market starts clean.
+    for (const key of Object.keys(kdeBuffers)) {
+      kdeBuffers[key] = [[], [], []];
+    }
+    kdeSpreads   = [];
+    kdeMids      = [];
+    kdeLogRets   = [];
+    kdeTickTimes = [];
+    kdeLastTau   = null;
+    // Redraw all KDE charts blank
+    if (typeof kdeRedrawAll === 'function') kdeRedrawAll();
+    log('KDE buffers cleared for new market.');
   }
 
   // ── Convergence bar ────────────────────────────────────────────────────────
@@ -645,13 +859,46 @@
     setText('kt-real-mid',  realMid  ? realMid.toFixed(4)  : '—');
     setText('kt-real-sprd', realSprd ? realSprd.toFixed(4) : '—');
 
-    // Row 2 – BS Kernel
+    // Row 2 – BS Kernel YES
     setText('kt-bs-bid',   bsBid  ? bsBid.toFixed(4)  : '—');
     setText('kt-bs-ask',   bsAsk  ? bsAsk.toFixed(4)  : '—');
     setText('kt-bs-fair',  bsFair ? bsFair.toFixed(4) : '—');
     setText('kt-bs-sprd',  bsSprd ? bsSprd.toFixed(4) : '—');
 
-    // Row 3 – Strategy
+    // Δ YES = BS fair YES − real mid YES
+    const deltaYes    = bsFair && realMid ? bsFair - realMid : null;
+    const deltaYesEl  = document.getElementById('kt-bs-delta-yes');
+    if (deltaYes !== null) {
+      deltaYesEl.textContent = (deltaYes >= 0 ? '+' : '') + deltaYes.toFixed(4);
+      deltaYesEl.style.color = deltaYes > 0.001 ? '#3fb950' : deltaYes < -0.001 ? '#f85149' : '#8b949e';
+    } else {
+      deltaYesEl.textContent = '—';
+      deltaYesEl.style.color = '';
+    }
+
+    // Row 3 – BS Kernel NO (derived client-side: NO = 1 - YES)
+    const noFair = bsFair ? +(1 - bsFair).toFixed(4) : null;
+    const noBid  = bsAsk  ? +(1 - bsAsk).toFixed(4)  : null;   // NO bid = 1 - YES ask
+    const noAsk  = bsBid  ? +(1 - bsBid).toFixed(4)  : null;   // NO ask = 1 - YES bid
+    const noSprd = (noBid != null && noAsk != null) ? +(noAsk - noBid).toFixed(4) : null;
+    setText('kt-bs-no-bid',  noBid  != null ? noBid.toFixed(4)  : '—');
+    setText('kt-bs-no-ask',  noAsk  != null ? noAsk.toFixed(4)  : '—');
+    setText('kt-bs-no-fair', noFair != null ? noFair.toFixed(4) : '—');
+    setText('kt-bs-no-sprd', noSprd != null ? noSprd.toFixed(4) : '—');
+
+    // Δ NO = BS fair NO − real mid NO  (real mid NO = 1 − real mid YES)
+    const realMidNo = realMid ? +(1 - realMid).toFixed(4) : null;
+    const deltaNo   = (noFair != null && realMidNo != null) ? noFair - realMidNo : null;
+    const deltaNoEl   = document.getElementById('kt-bs-delta-no');
+    if (deltaNo !== null) {
+      deltaNoEl.textContent = (deltaNo >= 0 ? '+' : '') + deltaNo.toFixed(4);
+      deltaNoEl.style.color = deltaNo > 0.001 ? '#3fb950' : deltaNo < -0.001 ? '#f85149' : '#8b949e';
+    } else {
+      deltaNoEl.textContent = '—';
+      deltaNoEl.style.color = '';
+    }
+
+    // Row 4 – Strategy
     const action = d.bs_action || 'WAIT';
     const ap     = d.bs_action_price;
 
@@ -693,12 +940,14 @@
       bar.style.cssText = '';
       bar.className = 'mt-2 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold flex items-center gap-2 bg-yes/10 border border-yes/30 text-yes';
       icon.textContent = '▲';
-      label.textContent = `BID @ ${ap != null ? ap.toFixed(3) : '—'}  (beat mkt bid ${realBid.toFixed(3)})`;
+      const noAp = d.bs_no_action_price;
+      label.textContent = `BID YES @ ${ap != null ? ap.toFixed(3) : '—'}  (≡ ASK NO @ ${noAp != null ? noAp.toFixed(3) : '—'})  beat mkt bid ${realBid.toFixed(3)}`;
     } else if (action === 'ASK') {
       bar.style.cssText = '';
       bar.className = 'mt-2 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold flex items-center gap-2 bg-no/10 border border-no/30 text-no';
       icon.textContent = '▼';
-      label.textContent = `ASK @ ${ap != null ? ap.toFixed(3) : '—'}  (beat mkt ask ${realAsk.toFixed(3)})`;
+      const noAp2 = d.bs_no_action_price;
+      label.textContent = `ASK YES @ ${ap != null ? ap.toFixed(3) : '—'}  (≡ BID NO @ ${noAp2 != null ? noAp2.toFixed(3) : '—'})  beat mkt ask ${realAsk.toFixed(3)}`;
     } else {
       bar.style.cssText = '';
       bar.className = 'mt-2 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold flex items-center gap-2 bg-border/50 border border-border text-muted';
@@ -730,25 +979,64 @@
 
   // ── Analytics Panel ────────────────────────────────────────────────────────
   function updateAnalyticsPanel(d) {
-    // RV
-    if (d.an_rv != null) {
-      setText('an-rv', d.an_rv.toFixed(1) + '%');
-    }
-    // IV
-    if (d.an_iv != null) {
-      setText('an-iv', d.an_iv.toFixed(1) + '%');
-    }
-    // Vol Gap (RV - IV): green = market under-pricing vol, red = over-pricing
-    if (d.an_vol_gap != null) {
+    // RV — always sync (clear when null so no stale value persists)
+    setText('an-rv', d.an_rv != null ? d.an_rv.toFixed(1) + '%' : '—');
+
+    // IV — always sync
+    setText('an-iv', d.an_iv != null ? d.an_iv.toFixed(1) + '%' : '—');
+
+    // Vol Gap — always sync
+    {
       const gapEl = document.getElementById('an-vol-gap');
-      const gap = d.an_vol_gap;
-      gapEl.textContent = (gap >= 0 ? '+' : '') + gap.toFixed(1) + '%';
-      gapEl.style.color = gap > 0 ? '#3fb950' : gap < 0 ? '#f85149' : '#8b949e';
+      if (d.an_vol_gap != null) {
+        const gap = d.an_vol_gap;
+        gapEl.textContent = (gap >= 0 ? '+' : '') + gap.toFixed(1) + '%';
+        gapEl.style.color = gap > 0 ? '#3fb950' : gap < 0 ? '#f85149' : '#8b949e';
+      } else {
+        gapEl.textContent = '—'; gapEl.style.color = '#8b949e';
+      }
     }
-    // Vega
-    if (d.an_vega != null) {
-      setText('an-vega', d.an_vega.toFixed(4));
+
+    // Vega — always sync
+    {
+      const vegaEl = document.getElementById('an-vega');
+      if (d.an_vega != null) {
+        vegaEl.textContent = d.an_vega.toFixed(4);
+        // High-vega warning near expiry (|v|>1.5 and T<180s)
+        vegaEl.style.color = (Math.abs(d.an_vega) > 1.5 && d.bs_tau_secs != null && d.bs_tau_secs < 180)
+          ? '#f0a500' : (d.an_vega < 0 ? '#f85149' : '#3fb950');
+      } else {
+        vegaEl.textContent = '—'; vegaEl.style.color = '#8b949e';
+      }
     }
+    // Delta — always sync
+    {
+      const el = document.getElementById('an-delta');
+      if (d.an_delta != null) {
+        el.textContent = d.an_delta.toFixed(6);
+        el.style.color = '#e6c07b';   // amber: probability sensitivity
+      } else { el.textContent = '—'; el.style.color = '#8b949e'; }
+    }
+
+    // Gamma — always sync (scientific notation)
+    {
+      const el = document.getElementById('an-gamma');
+      if (d.an_gamma != null) {
+        el.textContent = d.an_gamma.toExponential(2);
+        // Gamma high near expiry = danger zone
+        el.style.color = (Math.abs(d.an_gamma) > 1e-6) ? '#f0a500' : '#8b949e';
+      } else { el.textContent = '—'; el.style.color = '#8b949e'; }
+    }
+
+    // Theta — always sync (per minute)
+    {
+      const el = document.getElementById('an-theta');
+      if (d.an_theta != null) {
+        el.textContent = (d.an_theta >= 0 ? '+' : '') + d.an_theta.toFixed(6);
+        el.style.color = d.an_theta > 0 ? '#3fb950' : '#f85149';
+      } else { el.textContent = '—'; el.style.color = '#8b949e'; }
+    }
+
     // Sample count
     if (d.an_rv_n != null) {
       setText('an-rv-samples', d.an_rv_n + ' samples');
@@ -761,51 +1049,804 @@
   }
 
   // ── Paper Trading Panel ────────────────────────────────────────────────────
+  function _pnlColor(v) { return v > 0 ? '#3fb950' : v < 0 ? '#f85149' : '#8b949e'; }
+  function _pnlText(v, dp=2) { return (v >= 0 ? '+' : '') + v.toFixed(dp); }
+
+  async function resetPaperStats() {
+    if (!confirm('Reset all paper trading stats? Balance will be restored to $10,000 and all trade history will be cleared.')) return;
+    try {
+      const r = await fetch('/api/reset-stats', { method: 'POST' });
+      const j = await r.json();
+      log('[RESET] ' + j.message);
+      // Immediately clear UI without waiting for next tick
+      setText('pt-balance',   '$10,000.00');
+      setText('pt-equity',    '$10,000.00');
+      setText('pt-trades',    '0');
+      setText('pt-wins',      '0');
+      setText('pt-losses',    '0');
+      setText('pt-upnl',      '—');
+      setText('pt-uroi',      '—');
+      setText('pt-rpnl',      '—');
+      setText('pt-total-pnl', '—');
+      setText('pt-win-rate',  '—');
+      setText('pt-pf',        '—');
+      setText('pt-avg-win',   '—');
+      setText('pt-avg-loss',  '—');
+      setText('pt-max-dd',    '—');
+      setText('pt-roi',       '—');
+      setText('pt-last-close','No trades yet');
+      setText('pt-yes-edge',  '—');
+      setText('pt-no-edge',   '—');
+      const tbody = document.getElementById('pt-trade-tbody');
+      if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="text-muted py-1 text-center">No trades yet</td></tr>';
+      _equityCurve = []; _equityUpnl = 0.0;
+      _equityBands = []; _activeBandHi = -Infinity; _activeBandLo = Infinity; _lastCurveLen = 0;
+      drawEquityCurve();
+    } catch(e) {
+      log('[RESET] Error: ' + e);
+    }
+  }
+
   function updatePaperPanel(d) {
+    // Balance / Equity
+    if (d.pt_balance != null) setText('pt-balance', '$' + d.pt_balance.toLocaleString('en', {minimumFractionDigits:2, maximumFractionDigits:2}));
+    if (d.pt_equity  != null) setText('pt-equity',  '$' + d.pt_equity.toLocaleString('en',  {minimumFractionDigits:2, maximumFractionDigits:2}));
+
+    // Trade counts
+    if (d.pt_trades  != null) setText('pt-trades',  d.pt_trades);
+    if (d.pt_wins    != null) setText('pt-wins',     d.pt_wins);
+    if (d.pt_losses  != null) setText('pt-losses',   d.pt_losses);
+
     // Position
-    const pos = d.pt_position ?? 0;
     const posEl = document.getElementById('pt-position');
-    if (pos === 0) {
-      posEl.textContent = 'FLAT';
-      posEl.style.color = '#8b949e';
+    const inv = d.pt_inventory ?? 'NONE';
+    if (inv === 'NONE') {
+      posEl.textContent = 'FLAT'; posEl.style.color = '#8b949e';
     } else {
-      posEl.textContent = (pos > 0 ? '+' : '') + pos.toFixed(1) + ' YES';
-      posEl.style.color = pos > 0 ? '#3fb950' : '#f85149';
+      const sh = d.pt_shares != null ? d.pt_shares.toFixed(3) + ' sh' : '';
+      posEl.textContent = inv + ' ' + sh;
+      posEl.style.color = inv === 'YES' ? '#3fb950' : '#f85149';
     }
 
-    // Avg Entry
-    if (d.pt_avg_entry != null) {
-      setText('pt-avg-entry', d.pt_avg_entry.toFixed(4));
+    // Entry / Current Bid
+    const entryEl = document.getElementById('pt-avg-entry');
+    if (d.pt_avg_entry != null && d.pt_current_bid != null) {
+      entryEl.textContent = d.pt_avg_entry.toFixed(4) + ' / ' + d.pt_current_bid.toFixed(4);
     } else {
-      setText('pt-avg-entry', '—');
+      entryEl.textContent = '— / —';
     }
 
-    // Unrealized P&L
+    // uPnL
     const upnlEl = document.getElementById('pt-upnl');
     if (d.pt_upnl != null) {
-      upnlEl.textContent = (d.pt_upnl >= 0 ? '+' : '') + d.pt_upnl.toFixed(4);
-      upnlEl.style.color = d.pt_upnl > 0 ? '#3fb950' : d.pt_upnl < 0 ? '#f85149' : '#8b949e';
+      upnlEl.textContent = _pnlText(d.pt_upnl);
+      upnlEl.style.color = _pnlColor(d.pt_upnl);
     }
 
-    // Total P&L
-    const totalEl = document.getElementById('pt-total-pnl');
-    if (d.pt_total_pnl != null) {
-      totalEl.textContent = (d.pt_total_pnl >= 0 ? '+' : '') + d.pt_total_pnl.toFixed(4);
-      totalEl.style.color = d.pt_total_pnl > 0 ? '#3fb950' : d.pt_total_pnl < 0 ? '#f85149' : '#8b949e';
+    // uROI
+    const uroiEl = document.getElementById('pt-uroi');
+    if (d.pt_uroi != null) {
+      uroiEl.textContent = _pnlText(d.pt_uroi, 1) + '%';
+      uroiEl.style.color = _pnlColor(d.pt_uroi);
     }
 
-    // Realized P&L
+    // rPnL
     const rpnlEl = document.getElementById('pt-rpnl');
     if (d.pt_rpnl != null) {
-      rpnlEl.textContent = (d.pt_rpnl >= 0 ? '+' : '') + d.pt_rpnl.toFixed(4);
-      rpnlEl.style.color = d.pt_rpnl > 0 ? '#3fb950' : d.pt_rpnl < 0 ? '#f85149' : '#8b949e';
+      rpnlEl.textContent = _pnlText(d.pt_rpnl);
+      rpnlEl.style.color = _pnlColor(d.pt_rpnl);
     }
 
-    // Trade count
-    if (d.pt_trades != null) setText('pt-trades', d.pt_trades);
+    // Total PnL
+    const totEl = document.getElementById('pt-total-pnl');
+    if (d.pt_total_pnl != null) {
+      totEl.textContent = _pnlText(d.pt_total_pnl);
+      totEl.style.color = _pnlColor(d.pt_total_pnl);
+    }
 
-    // Last action
-    if (d.pt_last_action != null) setText('pt-last-action', d.pt_last_action);
+    // Performance stats
+    if (d.pt_win_rate != null) setText('pt-win-rate', d.pt_win_rate.toFixed(0) + '%');
+    if (d.pt_pf      != null) {
+      const pf = document.getElementById('pt-pf');
+      pf.textContent = d.pt_pf >= 999 ? '∞' : d.pt_pf.toFixed(2);
+      pf.style.color = d.pt_pf >= 1 ? '#3fb950' : '#f85149';
+    }
+    if (d.pt_avg_win  != null) setText('pt-avg-win',  _pnlText(d.pt_avg_win));
+    if (d.pt_avg_loss != null) setText('pt-avg-loss',  d.pt_avg_loss.toFixed(2));
+    if (d.pt_max_dd   != null) setText('pt-max-dd',    d.pt_max_dd.toFixed(1) + '%');
+    if (d.pt_roi      != null) {
+      const roiEl = document.getElementById('pt-roi');
+      roiEl.textContent = _pnlText(d.pt_roi, 2) + '%';
+      roiEl.style.color = _pnlColor(d.pt_roi);
+    }
+    if (d.pt_sharpe != null) {
+      const sharpeEl = document.getElementById('pt-sharpe');
+      sharpeEl.textContent = d.pt_sharpe.toFixed(2);
+      sharpeEl.style.color = d.pt_sharpe >= 1 ? '#3fb950' : d.pt_sharpe >= 0 ? '#f0a500' : '#f85149';
+    }
+
+    // Strategy signal: actual taker edges vs threshold
+    if (d.pt_long_yes_edge != null) {
+      const yesEdgeEl = document.getElementById('pt-yes-edge');
+      yesEdgeEl.textContent = d.pt_long_yes_edge.toFixed(4);
+      yesEdgeEl.style.color = d.pt_long_yes_edge >= (d.pt_min_edge || 0.08) ? '#3fb950' : '#8b949e';
+    }
+    if (d.pt_long_no_edge != null) {
+      const noEdgeEl = document.getElementById('pt-no-edge');
+      noEdgeEl.textContent = d.pt_long_no_edge.toFixed(4);
+      noEdgeEl.style.color = d.pt_long_no_edge >= (d.pt_min_edge || 0.08) ? '#3fb950' : '#8b949e';
+    }
+    if (d.pt_min_edge != null) setText('pt-min-edge', d.pt_min_edge.toFixed(4));
+
+    // Last close
+    if (d.pt_last_close) setText('pt-last-close', d.pt_last_close);
+
+    // Active positions table
+    if (Array.isArray(d.pt_open_positions)) updateOpenPositions(d.pt_open_positions);
+
+    // Trade log table
+    if (Array.isArray(d.pt_trade_log)) updateTradeLog(d.pt_trade_log);
+
+    // Equity curve — realized curve updated on trade close, uPnL every tick
+    if (Array.isArray(d.pt_equity_curve)) {
+      const newLen = d.pt_equity_curve.length;
+      // A new trade just closed: finalize the previous active band
+      if (newLen > _lastCurveLen && _lastCurveLen > 0) {
+        const closedPoint = d.pt_equity_curve[_lastCurveLen - 1];
+        if (closedPoint && _activeBandHi !== -Infinity) {
+          _equityBands[_lastCurveLen - 1] = {
+            x:  closedPoint.x,
+            hi: _activeBandHi,
+            lo: _activeBandLo,
+          };
+        }
+        // Reset active band for the new period
+        _activeBandHi = -Infinity;
+        _activeBandLo =  Infinity;
+      }
+      _lastCurveLen = newLen;
+      _equityCurve  = d.pt_equity_curve;
+    }
+    if (d.pt_upnl != null) {
+      _equityUpnl = d.pt_upnl;
+      // Update running hi/lo for current open period (in %)
+      if (_equityCurve.length > 0) {
+        const lastR   = _equityCurve[_equityCurve.length - 1].r;
+        const totalPct = (lastR + _equityUpnl) / 10000 * 100;
+        if (totalPct > _activeBandHi) _activeBandHi = totalPct;
+        if (totalPct < _activeBandLo) _activeBandLo = totalPct;
+      }
+    }
+    drawEquityCurve();
+  }
+
+  function updateOpenPositions(positions) {
+    const tbody = document.getElementById('pt-open-tbody');
+    const countEl = document.getElementById('pt-open-count');
+    if (countEl) countEl.textContent = positions.length + ' open';
+    if (!positions.length) {
+      tbody.innerHTML = '<tr><td colspan="9" class="text-muted py-1 text-center">No open positions</td></tr>';
+      return;
+    }
+    tbody.innerHTML = positions.map(p => {
+      const sideClr  = p.asset === 'YES' ? '#3fb950' : '#f85149';
+      const upnlClr  = p.upnl >= 0 ? '#3fb950' : '#f85149';
+      const heldStr  = p.held >= 60 ? Math.floor(p.held/60) + 'm ' + (p.held%60) + 's' : p.held + 's';
+      return `<tr class="border-b border-border/20 hover:bg-surface/50">
+        <td class="py-0.5 pr-2 text-muted">#${p.id}</td>
+        <td class="py-0.5 pr-2 font-bold" style="color:${sideClr}">${p.asset}</td>
+        <td class="py-0.5 pr-2 text-right">${p.entry.toFixed(4)}</td>
+        <td class="py-0.5 pr-2 text-right text-white">${p.bid.toFixed(4)}</td>
+        <td class="py-0.5 pr-2 text-right text-muted">${p.shares.toFixed(3)}</td>
+        <td class="py-0.5 pr-2 text-right text-muted">$${p.cost.toFixed(2)}</td>
+        <td class="py-0.5 pr-2 text-right font-bold" style="color:${upnlClr}">${p.upnl >= 0 ? '+' : ''}${p.upnl.toFixed(2)}</td>
+        <td class="py-0.5 pr-2 text-right" style="color:${upnlClr}">${p.upnl_p >= 0 ? '+' : ''}${p.upnl_p.toFixed(1)}%</td>
+        <td class="py-0.5 text-right text-muted">${heldStr}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function updateTradeLog(trades) {
+    const tbody = document.getElementById('pt-trade-tbody');
+    if (!trades.length) {
+      tbody.innerHTML = '<tr><td colspan="9" class="text-muted py-1 text-center">No trades yet</td></tr>';
+      return;
+    }
+    tbody.innerHTML = trades.map(t => {
+      const pnlClr  = t.pnl  >= 0 ? '#3fb950' : '#f85149';
+      const pctClr  = t.pnl_pct >= 0 ? '#3fb950' : '#f85149';
+      const assetClr = t.asset === 'YES' ? '#3fb950' : '#f85149';
+      const reasonClr = t.reason === 'TARGET' ? '#3fb950'
+                      : t.reason === 'STOP-LOSS' ? '#f85149' : '#f0a500';
+      return `<tr class="border-b border-border/20">
+        <td class="py-0.5 pr-2 text-muted">#${t.id}</td>
+        <td class="py-0.5 pr-2 font-bold" style="color:${assetClr}">${t.asset}</td>
+        <td class="py-0.5 pr-2 text-right">${t.entry.toFixed(4)}</td>
+        <td class="py-0.5 pr-2 text-right">${t.exit.toFixed(4)}</td>
+        <td class="py-0.5 pr-2 text-right text-muted">${t.shares.toFixed(3)}</td>
+        <td class="py-0.5 pr-2 text-right font-bold" style="color:${pnlClr}">${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}</td>
+        <td class="py-0.5 pr-2 text-right" style="color:${pctClr}">${t.pnl_pct >= 0 ? '+' : ''}${t.pnl_pct.toFixed(1)}%</td>
+        <td class="py-0.5 pr-2 text-right text-muted">${t.duration.toFixed(0)}s</td>
+        <td class="py-0.5 text-right" style="color:${reasonClr}">${t.reason}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ── Equity Curve ──────────────────────────────────────────────────────────
+  // _equityCurve : [{x: trade_id, r: cum_rpnl}] — one point per closed trade
+  // _equityUpnl  : live unrealized PnL — updated every tick
+  // Both curves share the same X axis (trade number).
+  // Cyan "total" curve is identical to realized EXCEPT its last point
+  // is lifted by _equityUpnl, which updates every tick in real time.
+  let _equityCurve     = [];
+  let _equityUpnl      = 0.0;
+  // Per-trade hi/lo tracking of total PnL (realized + unrealized)
+  // _equityBands[i] = {x, hi, lo} for completed trade i
+  // _activeBand tracks the in-progress period since last close
+  let _equityBands    = [];          // [{x, hi, lo}] — one per closed trade
+  let _activeBandHi   = -Infinity;
+  let _activeBandLo   =  Infinity;
+  let _lastCurveLen   = 0;           // detect when a new trade closes
+
+  function drawEquityCurve() {
+    const canvas = document.getElementById('equity-canvas');
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const ctx  = canvas.getContext('2d');
+    const W = canvas.offsetWidth  || 400;
+    const H = canvas.offsetHeight || 480;
+    if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) {
+      canvas.width  = Math.round(W * dpr);
+      canvas.height = Math.round(H * dpr);
+      ctx.scale(dpr, dpr);
+    }
+
+    const ML = 46, MR = 8, MT = 12, MB = 22;
+    const PW = W - ML - MR;
+    const PH = H - MT - MB;
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#0a0d12';
+    ctx.fillRect(0, 0, W, H);
+
+    if (_equityCurve.length < 2) {
+      ctx.fillStyle = '#3d444d';
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('Nessun trade ancora…', W / 2, H / 2);
+      ctx.textAlign = 'left';
+      return;
+    }
+
+    const n  = _equityCurve.length;
+    const xs = _equityCurve.map(p => p.x);
+    const rs = _equityCurve.map(p => p.r);
+
+    // Cyan "total" = same realized points but last Y += live uPnL
+    const ts = rs.slice();
+    ts[n - 1] = rs[n - 1] + _equityUpnl;
+
+    // Convert all dollar PnL → % of initial capital ($10,000)
+    const INIT_CAP = 10000;
+    const rsPct = rs.map(v => v / INIT_CAP * 100);
+    const tsPct = ts.map(v => v / INIT_CAP * 100);
+
+    const xMin = xs[0];
+    const xMax = xs[n - 1];
+    const allY   = [...rsPct, ...tsPct];
+    const rawMin = Math.min(...allY);
+    const rawMax = Math.max(...allY);
+    // Snap to nearest 5% boundary with at least 5% padding
+    const yMin = Math.floor((rawMin - 5) / 5) * 5;
+    const yMax = Math.ceil ((rawMax + 5) / 5) * 5;
+
+    const toX = v => ML + (xMax === xMin ? PW / 2 : (v - xMin) / (xMax - xMin) * PW);
+    const toY = v => MT + PH - (v - yMin) / (yMax - yMin + 1e-10) * PH;
+
+    // ── Zero baseline ──────────────────────────────────────────────────────
+    const y0 = toY(0);
+    if (y0 >= MT && y0 <= MT + PH) {
+      ctx.beginPath();
+      ctx.strokeStyle = '#2d333b';
+      ctx.lineWidth   = 0.8;
+      ctx.setLineDash([4, 4]);
+      ctx.moveTo(ML, y0); ctx.lineTo(W - MR, y0);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // ── Y-axis grid + labels — fixed 5% steps ─────────────────────────────
+    ctx.font      = '8px monospace';
+    ctx.textAlign = 'right';
+    for (let yv = yMin; yv <= yMax + 0.01; yv += 5) {
+      const py = toY(yv);
+      if (py < MT - 2 || py > MT + PH + 2) continue;
+      ctx.beginPath();
+      ctx.strokeStyle = yv === 0 ? '#3d444d' : '#1c2128';
+      ctx.lineWidth   = yv === 0 ? 1 : 0.5;
+      ctx.moveTo(ML, py); ctx.lineTo(W - MR, py); ctx.stroke();
+      ctx.fillStyle = yv === 0 ? '#9ca3af' : '#6b7280';
+      ctx.fillText((yv >= 0 ? '+' : '') + yv.toFixed(0) + '%', ML - 3, py + 3);
+    }
+
+    // ── X-axis labels (trade IDs) ──────────────────────────────────────────
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#6b7280';
+    const xStep = Math.max(1, Math.floor((xMax - xMin) / 6));
+    for (let xv = xMin; xv <= xMax + 0.01; xv += xStep) {
+      const px = toX(xv);
+      ctx.beginPath();
+      ctx.strokeStyle = '#4b5563';
+      ctx.lineWidth   = 1;
+      ctx.moveTo(px, MT + PH); ctx.lineTo(px, MT + PH + 3); ctx.stroke();
+      ctx.fillText(xv, px, H - 5);
+    }
+
+    // ── Axes border ────────────────────────────────────────────────────────
+    ctx.beginPath();
+    ctx.strokeStyle = '#30363d';
+    ctx.lineWidth   = 1;
+    ctx.moveTo(ML, MT); ctx.lineTo(ML, MT + PH); ctx.lineTo(W - MR, MT + PH); ctx.stroke();
+
+    // ── Draw helper ────────────────────────────────────────────────────────
+    function drawLine(yArr, color, alpha, lw) {
+      ctx.beginPath();
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth   = lw;
+      ctx.lineJoin    = 'round';
+      ctx.moveTo(toX(xs[0]), toY(yArr[0]));
+      for (let i = 1; i < yArr.length; i++) ctx.lineTo(toX(xs[i]), toY(yArr[i]));
+      ctx.stroke();
+      ctx.globalAlpha = 1.0;
+    }
+
+    // ── Per-trade hi/lo wicks ──────────────────────────────────────────────
+    // Also draw active band for current open period
+    const allBands = _equityBands.slice();
+    if (_activeBandHi !== -Infinity && _equityCurve.length > 0) {
+      allBands[_equityCurve.length - 1] = {
+        x:  xs[n - 1],
+        hi: _activeBandHi,
+        lo: _activeBandLo,
+      };
+    }
+    // Collect valid bands in order
+    const validBands = allBands.filter(b => b && b.hi !== -Infinity);
+
+    // ── Line connecting all highs ──────────────────────────────────────────
+    if (validBands.length >= 2) {
+      ctx.beginPath();
+      ctx.strokeStyle = '#a5f3fc';   // light cyan
+      ctx.globalAlpha = 0.55;
+      ctx.lineWidth   = 1.2;
+      ctx.lineJoin    = 'round';
+      ctx.setLineDash([3, 3]);
+      ctx.moveTo(toX(validBands[0].x), toY(validBands[0].hi));
+      for (let i = 1; i < validBands.length; i++)
+        ctx.lineTo(toX(validBands[i].x), toY(validBands[i].hi));
+      ctx.stroke();
+
+      // ── Line connecting all lows ───────────────────────────────────────
+      ctx.beginPath();
+      ctx.strokeStyle = '#f87171';   // light red
+      ctx.moveTo(toX(validBands[0].x), toY(validBands[0].lo));
+      for (let i = 1; i < validBands.length; i++)
+        ctx.lineTo(toX(validBands[i].x), toY(validBands[i].lo));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1.0;
+    }
+
+    // ── Vertical wicks ─────────────────────────────────────────────────────
+    ctx.lineWidth   = 1.5;
+    ctx.strokeStyle = '#17d4f5';
+    ctx.globalAlpha = 0.35;
+    validBands.forEach(b => {
+      const px  = toX(b.x);
+      const pyH = toY(Math.min(b.hi, yMax));
+      const pyL = toY(Math.max(b.lo, yMin));
+      ctx.beginPath();
+      ctx.moveTo(px, pyH);
+      ctx.lineTo(px, pyL);
+      ctx.stroke();
+      // Small horizontal caps
+      ctx.beginPath(); ctx.moveTo(px - 3, pyH); ctx.lineTo(px + 3, pyH); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(px - 3, pyL); ctx.lineTo(px + 3, pyL); ctx.stroke();
+    });
+    ctx.globalAlpha = 1.0;
+
+    // Cyan total line (behind)
+    drawLine(tsPct, '#17d4f5', 0.80, 1.8);
+
+    // Green realized line (on top)
+    drawLine(rsPct, '#3fb950', 1.0, 2.2);
+
+    // Live cyan dot (total last point — moves every tick)
+    ctx.beginPath();
+    ctx.arc(toX(xs[n-1]), toY(tsPct[n-1]), 4, 0, 2 * Math.PI);
+    ctx.fillStyle = '#17d4f5';
+    ctx.fill();
+
+    // Green dot (realized last point)
+    ctx.beginPath();
+    ctx.arc(toX(xs[n-1]), toY(rsPct[n-1]), 3, 0, 2 * Math.PI);
+    ctx.fillStyle = '#3fb950';
+    ctx.fill();
+  }
+
+  // ── KDE Microstructure Panel ───────────────────────────────────────────────
+  const KDE_COLORS = ['#17d4f5', '#d440c8', '#f5c842'];  // W1, W2, W3
+  const KDE_MAX_TICKS = 2000;
+
+  // Buffers per metric, 3 windows: [W1: tau>180, W2: 30<tau≤180, W3: tau≤30]
+  const kdeBuffers = {
+    tick:  [[], [], []],   // tick intensity (updates/sec)
+    sent:  [[], [], []],   // sample entropy (spread sequence)
+    pent:  [[], [], []],   // permutation entropy (mid ordinal)
+    cpent: [[], [], []],   // contract price entropy
+    hurst: [[], [], []],   // R/S Hurst on log-returns
+    mdivg: [[], [], []]    // microprice divergence = bs_fair - yes_mid
+  };
+
+  // Raw tick storage for computing derived metrics
+  let kdeSpreads   = [];   // spread values
+  let kdeMids      = [];   // mid prices
+  let kdeLogRets   = [];   // log-returns of mid
+  let kdeTickTimes = [];   // timestamps for tick intensity
+  let kdeLastTau   = null;
+
+  // Gaussian KDE with Silverman bandwidth
+  function gaussKDE(data, nPts = 80) {
+    if (data.length < 3) return null;
+    const n = data.length;
+    const mean = data.reduce((a, b) => a + b, 0) / n;
+    const std  = Math.sqrt(data.reduce((s, v) => s + (v - mean) ** 2, 0) / n);
+    if (std < 1e-10) return null;
+    const h = 1.06 * std * Math.pow(n, -0.2);  // Silverman
+    const lo = Math.min(...data) - 2 * h;
+    const hi = Math.max(...data) + 2 * h;
+    const xs = Array.from({length: nPts}, (_, i) => lo + (hi - lo) * i / (nPts - 1));
+    const ys = xs.map(x => {
+      const s = data.reduce((acc, xi) => acc + Math.exp(-0.5 * ((x - xi) / h) ** 2), 0);
+      return s / (n * h * Math.sqrt(2 * Math.PI));
+    });
+    return {xs, ys, lo, hi};
+  }
+
+  // Sample entropy (m=2, r=0.2*std)
+  function sampleEntropy(arr) {
+    if (arr.length < 6) return null;
+    const m = 2;
+    const std = Math.sqrt(arr.reduce((s, v) => s + (v - arr.reduce((a,b)=>a+b,0)/arr.length)**2, 0) / arr.length);
+    const r = 0.2 * std;
+    if (r < 1e-12) return null;
+    let A = 0, B = 0;
+    for (let i = 0; i < arr.length - m; i++) {
+      for (let j = i + 1; j < arr.length - m; j++) {
+        const matchM = Math.max(...Array.from({length: m}, (_, k) => Math.abs(arr[i+k] - arr[j+k]))) < r;
+        if (matchM) {
+          B++;
+          if (Math.abs(arr[i+m] - arr[j+m]) < r) A++;
+        }
+      }
+    }
+    if (B === 0) return null;
+    return -Math.log(A / B);
+  }
+
+  // Permutation entropy (order m=3)
+  function permEntropy(arr, m = 3) {
+    if (arr.length < m + 2) return null;
+    const counts = {};
+    const fact = [1, 1, 2, 6, 24, 120];
+    for (let i = 0; i <= arr.length - m; i++) {
+      const seg = arr.slice(i, i + m);
+      const perm = seg.map((v, k) => [v, k]).sort((a, b) => a[0] - b[0]).map(x => x[1]).join(',');
+      counts[perm] = (counts[perm] || 0) + 1;
+    }
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    let H = 0;
+    for (const c of Object.values(counts)) {
+      const p = c / total;
+      H -= p * Math.log2(p);
+    }
+    return H / Math.log2(fact[m]);  // normalized [0,1]
+  }
+
+  // Shannon entropy of histogram bins
+  function shannonEntropy(arr, bins = 20) {
+    if (arr.length < 5) return null;
+    const lo = Math.min(...arr), hi = Math.max(...arr);
+    if (hi - lo < 1e-10) return null;
+    const counts = new Array(bins).fill(0);
+    arr.forEach(v => {
+      const b = Math.min(bins - 1, Math.floor((v - lo) / (hi - lo) * bins));
+      counts[b]++;
+    });
+    const total = arr.length;
+    let H = 0;
+    counts.forEach(c => { if (c > 0) { const p = c/total; H -= p * Math.log2(p); } });
+    return H / Math.log2(bins);  // normalized
+  }
+
+  // Hurst exponent via R/S analysis
+  function hurstRS(arr) {
+    if (arr.length < 10) return null;
+    const n = arr.length;
+    const mean = arr.reduce((a, b) => a + b, 0) / n;
+    const cumDev = arr.map((v, i) => arr.slice(0, i+1).reduce((s,x) => s + (x - mean), 0));
+    const R = Math.max(...cumDev) - Math.min(...cumDev);
+    const std = Math.sqrt(arr.reduce((s, v) => s + (v - mean)**2, 0) / n);
+    if (std < 1e-12 || R < 1e-12) return null;
+    return Math.log(R / std) / Math.log(n);
+  }
+
+  // Which window index based on tau
+  function kdeWindowIdx(tau) {
+    if (tau > 180) return 0;       // W1: first 12 min
+    if (tau > 30)  return 1;       // W2: last 3 min
+    return 2;                      // W3: last 30s
+  }
+
+  // Push a value into the right window buffer
+  function kdePush(metric, tau, value) {
+    if (value === null || !isFinite(value)) return;
+    const wi = kdeWindowIdx(tau);
+    kdeBuffers[metric][wi].push(value);
+    if (kdeBuffers[metric][wi].length > KDE_MAX_TICKS) kdeBuffers[metric][wi].shift();
+  }
+
+  // Nicely-rounded tick values for axis labels
+  function niceTicksFmt(lo, hi, n) {
+    const raw = (hi - lo) / (n - 1);
+    const exp = Math.floor(Math.log10(raw));
+    const step = Math.pow(10, exp) * [1, 2, 2.5, 5, 10].find(f => f * Math.pow(10, exp) >= raw);
+    const start = Math.ceil(lo / step) * step;
+    const ticks = [];
+    for (let v = start; v <= hi + step * 0.01; v += step) {
+      ticks.push(parseFloat(v.toPrecision(4)));
+      if (ticks.length > n + 2) break;
+    }
+    return ticks;
+  }
+
+  function fmtAxisVal(v) {
+    const a = Math.abs(v);
+    if (a === 0) return '0';
+    if (a >= 1000) return (v / 1000).toFixed(1) + 'k';
+    if (a >= 100)  return v.toFixed(0);
+    if (a >= 10)   return v.toFixed(1);
+    if (a >= 1)    return v.toFixed(2);
+    if (a >= 0.1)  return v.toFixed(3);
+    return v.toExponential(1);
+  }
+
+  // Draw one KDE canvas with X/Y axis scales
+  function drawKDE(canvasId, windows, currentVal) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.offsetWidth  || 300;
+    const H = canvas.offsetHeight || 180;
+    if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) {
+      canvas.width  = Math.round(W * dpr);
+      canvas.height = Math.round(H * dpr);
+      ctx.scale(dpr, dpr);
+    }
+
+    // Margins: left for Y-axis, bottom for X-axis
+    const ML = 38, MR = 8, MT = 8, MB = 22;
+    const PW = W - ML - MR;   // plot width
+    const PH = H - MT - MB;   // plot height
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#0a0d12';
+    ctx.fillRect(0, 0, W, H);
+
+    // Compute KDE for each window
+    const kdes = windows.map(data => data.length >= 4 ? gaussKDE(data) : null);
+    const validKdes = kdes.filter(k => k !== null);
+    if (validKdes.length === 0) {
+      ctx.fillStyle = '#3d444d';
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('Collecting data…', W / 2, H / 2);
+      ctx.textAlign = 'left';
+      return;
+    }
+
+    const allXs = validKdes.flatMap(k => [k.lo, k.hi]);
+    const allYs = validKdes.flatMap(k => k.ys);
+    const xLo = Math.min(...allXs);
+    const xHi = Math.max(...allXs);
+    const yHi = Math.max(...allYs) * 1.15;
+
+    const toX = v => ML + (v - xLo) / (xHi - xLo + 1e-10) * PW;
+    const toY = v => MT + PH - v / (yHi + 1e-10) * PH;
+
+    // ── Grid + Y-axis ticks ──
+    const yTicks = niceTicksFmt(0, yHi, 5);
+    ctx.font = '8px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#4b5563';
+    ctx.strokeStyle = '#1c2128';
+    ctx.lineWidth = 0.5;
+    yTicks.forEach(yv => {
+      if (yv < 0 || yv > yHi * 1.05) return;
+      const py = toY(yv);
+      ctx.beginPath(); ctx.moveTo(ML, py); ctx.lineTo(W - MR, py); ctx.stroke();
+      ctx.fillStyle = '#6b7280';
+      ctx.fillText(fmtAxisVal(yv), ML - 3, py + 3);
+    });
+
+    // ── X-axis ticks ──
+    const xTicks = niceTicksFmt(xLo, xHi, 6);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#6b7280';
+    xTicks.forEach(xv => {
+      if (xv < xLo - (xHi - xLo) * 0.05 || xv > xHi + (xHi - xLo) * 0.05) return;
+      const px = toX(xv);
+      ctx.beginPath();
+      ctx.strokeStyle = '#1c2128';
+      ctx.lineWidth = 0.5;
+      ctx.moveTo(px, MT); ctx.lineTo(px, MT + PH); ctx.stroke();
+      // tick mark
+      ctx.beginPath();
+      ctx.strokeStyle = '#4b5563';
+      ctx.lineWidth = 1;
+      ctx.moveTo(px, MT + PH); ctx.lineTo(px, MT + PH + 3); ctx.stroke();
+      ctx.fillText(fmtAxisVal(xv), px, H - 5);
+    });
+
+    // ── Axes border ──
+    ctx.beginPath();
+    ctx.strokeStyle = '#30363d';
+    ctx.lineWidth = 1;
+    ctx.moveTo(ML, MT); ctx.lineTo(ML, MT + PH); ctx.lineTo(W - MR, MT + PH);
+    ctx.stroke();
+
+    // ── KDE curves + fills ──
+    kdes.forEach((kde, wi) => {
+      if (!kde) return;
+
+      // Fill
+      ctx.beginPath();
+      kde.xs.forEach((x, i) => {
+        const px = toX(x), py = toY(kde.ys[i]);
+        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      });
+      ctx.lineTo(toX(kde.xs[kde.xs.length - 1]), toY(0));
+      ctx.lineTo(toX(kde.xs[0]), toY(0));
+      ctx.closePath();
+      ctx.globalAlpha = 0.10;
+      ctx.fillStyle = KDE_COLORS[wi];
+      ctx.fill();
+      ctx.globalAlpha = 1.0;
+
+      // Line
+      ctx.beginPath();
+      ctx.strokeStyle = KDE_COLORS[wi];
+      ctx.lineWidth = 1.8;
+      kde.xs.forEach((x, i) => {
+        const px = toX(x), py = toY(kde.ys[i]);
+        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+    });
+
+    // ── Vertical dashed line for current value ──
+    if (currentVal !== null && isFinite(currentVal) && currentVal >= xLo && currentVal <= xHi) {
+      const cx = toX(currentVal);
+      ctx.beginPath();
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.moveTo(cx, MT);
+      ctx.lineTo(cx, MT + PH);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Value label above the line
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 8px monospace';
+      ctx.textAlign = cx > W * 0.75 ? 'right' : 'left';
+      ctx.fillText(fmtAxisVal(currentVal), cx + (cx > W * 0.75 ? -3 : 3), MT + 10);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  let kdeLastDraw = 0;
+  const KDE_REDRAW_MS = 2000;
+
+  function kdeOnTick(d) {
+    const tau = d.bs_tau_secs ?? null;
+    if (tau === null) return;
+
+    const now = Date.now();
+    kdeTickTimes.push(now);
+    // Keep only last 60s for tick intensity
+    while (kdeTickTimes.length > 1 && kdeTickTimes[0] < now - 60000) kdeTickTimes.shift();
+
+    const yesBid = d.yes_bid ?? null;
+    const yesAsk = d.yes_ask ?? null;
+    const bsFair = d.bs_fair ?? null;
+
+    // Tick intensity: ticks per second (rolling 10s)
+    const recentTicks = kdeTickTimes.filter(t => t > now - 10000).length;
+    const tickIntensity = recentTicks / 10;
+    kdePush('tick', tau, tickIntensity);
+
+    // Spread
+    if (yesBid !== null && yesAsk !== null) {
+      const spread = yesAsk - yesBid;
+      const mid = (yesBid + yesAsk) / 2;
+      kdeSpreads.push(spread);
+      kdeMids.push(mid);
+      if (kdeSpreads.length > KDE_MAX_TICKS) kdeSpreads.shift();
+      if (kdeMids.length > KDE_MAX_TICKS) kdeMids.shift();
+
+      // Log-returns
+      if (kdeMids.length >= 2) {
+        const prev = kdeMids[kdeMids.length - 2];
+        const curr = kdeMids[kdeMids.length - 1];
+        if (prev > 0 && curr > 0) {
+          kdeLogRets.push(Math.log(curr / prev));
+          if (kdeLogRets.length > KDE_MAX_TICKS) kdeLogRets.shift();
+        }
+      }
+
+      // Sample entropy on recent spreads (last 60 pts)
+      const recentSpreads = kdeSpreads.slice(-60);
+      kdePush('sent', tau, sampleEntropy(recentSpreads));
+
+      // Permutation entropy on recent mids (last 50 pts)
+      const recentMids = kdeMids.slice(-50);
+      kdePush('pent', tau, permEntropy(recentMids));
+
+      // Contract price entropy (Shannon on mid distribution, last 100 pts)
+      const recentMids100 = kdeMids.slice(-100);
+      kdePush('cpent', tau, shannonEntropy(recentMids100));
+
+      // Hurst on log-returns (last 50 pts)
+      const recentRets = kdeLogRets.slice(-50);
+      kdePush('hurst', tau, hurstRS(recentRets));
+
+      // Microprice divergence
+      if (bsFair !== null) {
+        kdePush('mdivg', tau, bsFair - mid);
+      }
+    }
+
+    kdeLastTau = tau;
+
+    // Redraw every 2s
+    if (now - kdeLastDraw > KDE_REDRAW_MS) {
+      kdeLastDraw = now;
+      kdeRedrawAll();
+    }
+  }
+
+  function kdeRedrawAll() {
+    const tau = kdeLastTau;
+    const yb = window._lastYesBid, ya = window._lastYesAsk, bf = window._lastBsFair;
+    const mid = (yb !== undefined && ya !== undefined) ? (yb + ya) / 2 : null;
+
+    drawKDE('kde-c-tick',  kdeBuffers.tick,  kdeBuffers.tick[0].slice(-1)[0] ?? null);
+    drawKDE('kde-c-sent',  kdeBuffers.sent,  kdeBuffers.sent[0].slice(-1)[0] ?? null);
+    drawKDE('kde-c-pent',  kdeBuffers.pent,  kdeBuffers.pent[0].slice(-1)[0] ?? null);
+    drawKDE('kde-c-cpent', kdeBuffers.cpent, kdeBuffers.cpent[0].slice(-1)[0] ?? null);
+    drawKDE('kde-c-hurst', kdeBuffers.hurst, kdeBuffers.hurst[0].slice(-1)[0] ?? null);
+    drawKDE('kde-c-mdivg', kdeBuffers.mdivg, bf !== undefined && mid !== null ? bf - mid : null);
+
+    // Update status
+    const totalPts = Object.values(kdeBuffers).reduce((s, b) => s + b.reduce((ss, w) => ss + w.length, 0), 0);
+    const statusEl = document.getElementById('kde-status');
+    if (statusEl) {
+      const active = [kdeBuffers.tick[0].length, kdeBuffers.tick[1].length, kdeBuffers.tick[2].length];
+      statusEl.textContent = `W1:${active[0]} W2:${active[1]} W3:${active[2]} pts · tau=${tau !== null ? tau.toFixed(0) : '?'}s`;
+    }
   }
 
   // ── Start ──────────────────────────────────────────────────────────────────

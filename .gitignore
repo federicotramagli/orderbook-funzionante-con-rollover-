@@ -31,3 +31,7 @@ secrets.py
 
 # Logs
 *.log
+nohup.out
+
+# Large vendor folders
+nautilus_trader-develop/

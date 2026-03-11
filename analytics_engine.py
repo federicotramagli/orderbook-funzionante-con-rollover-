@@ -47,7 +47,7 @@ _IV_MAX_ITER:   int   = 100         # Max brentq/bisection iterations
 # IV is meaningless when market price is near 0/1 or T is tiny
 _IV_PRICE_MIN:  float = 0.02        # Skip IV solve below 2¢
 _IV_PRICE_MAX:  float = 0.98        # Skip IV solve above 98¢
-_IV_T_MIN:      float = 1e-5        # Skip IV solve below ~5 min in years (T < 0.00001y)
+_IV_T_MIN:      float = 1e-6        # Skip IV solve below ~31 sec in years (T < 0.000001y)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -87,13 +87,29 @@ except ImportError:
         return math.exp(-0.5 * x * x) / math.sqrt(2 * math.pi)
 
     def _brentq(f, lo, hi) -> float:
-        """Manual bisection fallback (slower but correct)."""
+        """
+        Manual bisection fallback — monotonicity-agnostic.
+
+        Works correctly for both ITM binaries (f decreasing in σ) and OTM
+        binaries (f increasing in σ).  The key fix vs the naïve version:
+        instead of always moving `hi` when f(mid) > 0, we compare the sign
+        of f(mid) against f(lo) — same sign means the root is in [mid, hi],
+        opposite sign means it is in [lo, mid].  This is correct regardless
+        of whether f is increasing or decreasing.
+        """
+        f_lo = f(lo)
         for _ in range(_IV_MAX_ITER):
             mid = (lo + hi) / 2.0
-            if f(mid) > 0:
-                hi = mid
-            else:
+            f_mid = f(mid)
+            if abs(f_mid) < _IV_TOLERANCE:
+                return mid
+            if f_lo * f_mid > 0:
+                # f(lo) and f(mid) have the same sign → root is in (mid, hi)
                 lo = mid
+                f_lo = f_mid
+            else:
+                # root is in (lo, mid)
+                hi = mid
             if (hi - lo) < _IV_TOLERANCE:
                 break
         return (lo + hi) / 2.0
@@ -123,20 +139,81 @@ def _binary_price(S: float, K: float, T: float, sigma: float) -> float:
     return _norm_cdf(d2)
 
 
-def _binary_vega(S: float, K: float, T: float, sigma: float) -> float:
-    """
-    Binary call vega (sensitivity of P to σ):
-      Vega = -φ(d2) * d1 / (σ * √T)
-      d1 = d2 + σ√T
+def _d1_d2(S: float, K: float, T: float, sigma: float):
+    """Shared helper: returns (d1, d2, sqrt_T)."""
+    sqrt_T = math.sqrt(T)
+    d1 = (math.log(S / K) + 0.5 * sigma ** 2 * T) / (sigma * sqrt_T)
+    d2 = d1 - sigma * sqrt_T
+    return d1, d2, sqrt_T
 
-    Returns vega (typically negative: higher vol lowers binary call price when ITM).
+
+def _binary_delta(S: float, K: float, T: float, sigma: float) -> float:
+    """
+    Binary call Delta — ∂P/∂S:
+      Δ = φ(d2) / (S · σ · √T)
+
+    Derivation: ∂d2/∂S = 1/(S·σ·√T)
+    → Δ = φ(d2) · 1/(S·σ·√T)
+
+    Explodes near expiry at-the-money (denominator → 0).
     """
     if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
         return float("nan")
-    sqrt_T = math.sqrt(T)
-    d2 = (math.log(S / K) - 0.5 * sigma ** 2 * T) / (sigma * sqrt_T)
-    d1 = d2 + sigma * sqrt_T
-    return -_norm_pdf(d2) * d1 / (sigma * sqrt_T)
+    _, d2, sqrt_T = _d1_d2(S, K, T, sigma)
+    return _norm_pdf(d2) / (S * sigma * sqrt_T)
+
+
+def _binary_gamma(S: float, K: float, T: float, sigma: float) -> float:
+    """
+    Binary call Gamma — ∂²P/∂S²:
+      Γ = −φ(d2) · d1 / (S² · σ² · T)
+
+    Derivation: ∂Δ/∂S = ∂/∂S [φ(d2)/(S·σ·√T)]
+      = [φ'(d2)·∂d2/∂S·(S·σ·√T) − φ(d2)·σ·√T] / (S·σ·√T)²
+      = [−d2·φ(d2)/(S·σ·√T) − φ(d2)/(S)] / (S·σ·√T)
+      = −φ(d2)·(d2 + σ√T) / (S²·σ²·T)
+      = −φ(d2)·d1 / (S²·σ²·T)   ∎
+    """
+    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
+        return float("nan")
+    d1, d2, _ = _d1_d2(S, K, T, sigma)
+    return -_norm_pdf(d2) * d1 / (S ** 2 * sigma ** 2 * T)
+
+
+def _binary_theta(S: float, K: float, T: float, sigma: float) -> float:
+    """
+    Binary call Theta — ∂P/∂t (t = real time, T = time remaining).
+    Since ∂T/∂t = −1:
+
+      ∂d2/∂T = −d1/(2T)        [derivation: d2 = a/√T − 0.5σ√T,
+                                  ∂d2/∂T = −a/(2σT√T) − σ/(4√T)
+                                         = −[ln(S/K)+0.5σ²T]/(2σT√T)
+                                         = −d1·σ√T/(2σT√T) = −d1/(2T)]
+      ∂P/∂T = φ(d2)·(−d1/(2T))
+      Θ = −∂P/∂T = φ(d2)·d1/(2T)   [per year]
+
+    Note: user formula used d2 in place of d1 (typo — d1 is correct).
+    Returned in per-minute units (divide by 525,960 min/year).
+    """
+    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
+        return float("nan")
+    d1, d2, _ = _d1_d2(S, K, T, sigma)
+    theta_per_year = _norm_pdf(d2) * d1 / (2.0 * T)
+    return theta_per_year / (_SECS_PER_YEAR / 60.0)   # → per minute
+
+
+def _binary_vega(S: float, K: float, T: float, sigma: float) -> float:
+    """
+    Binary call Vega — ∂P/∂σ:
+      ν = −φ(d2) · d1 / σ
+
+    Derivation: ∂d2/∂σ = −d1/σ
+    → ν = φ(d2) · (−d1/σ) = −φ(d2)·d1/σ
+    """
+    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
+        return float("nan")
+    d1, d2, _ = _d1_d2(S, K, T, sigma)
+    return -_norm_pdf(d2) * d1 / sigma
 
 
 def _solve_iv(
@@ -210,7 +287,10 @@ class AnalyticsSnapshot:
     rv:          Optional[float] = None   # Realized vol (annualized, e.g. 0.552 = 55.2%)
     iv:          Optional[float] = None   # Implied vol (annualized)
     vol_gap:     Optional[float] = None   # RV - IV (positive = market under-pricing vol)
-    vega:        Optional[float] = None   # Binary vega at IV
+    vega:        Optional[float] = None   # ν = −φ(d2)·d1/σ
+    delta:       Optional[float] = None   # Δ = φ(d2)/(S·σ·√T)
+    gamma:       Optional[float] = None   # Γ = −φ(d2)·d1/(S²·σ²·T)
+    theta:       Optional[float] = None   # Θ per minute = φ(d2)·d1/(2T) ÷ 525960
     rv_samples:  int = 0                  # Number of price samples in RV window
 
 
@@ -332,19 +412,47 @@ class AnalyticsEngine:
         # 3. Vol gap
         vol_gap = (rv - iv) if (rv is not None and iv is not None) else None
 
-        # 4. Binary Vega at IV (or RV if IV unavailable).
-        # Vega diverges near expiry (σ·√T → 0 in denominator) — suppress below 5 min.
-        vega = None
-        if tau_secs >= 300.0:  # only meaningful at T >= 5 min
-            sigma_for_vega = iv if iv is not None else rv
-            if sigma_for_vega is not None:
+        # 4. Greeks — IV preferred, RV fallback, VOL_FLOOR=0.50 last resort.
+        # Require tau_secs >= 5s to avoid degenerate near-expiry values.
+        # Safety clamp: at price extremes (≤ 0.01 or ≥ 0.99), analytical Greeks
+        # are numerically unstable (d2 → ±∞). Return 0.0 instead.
+        _VOL_FLOOR = 0.50
+        vega = delta = gamma = theta = None
+        if tau_secs >= 5.0 and tau_years > 0:
+            if mkt_price <= 0.01 or mkt_price >= 0.99:
+                # Safety clamp: d2 → ±∞ at price extremes → analytical Greeks
+                # blow up. Return 0.0 — position is essentially resolved.
+                vega = delta = gamma = theta = 0.0
+            else:
+                sigma_g = iv if iv is not None else (rv if rv is not None else _VOL_FLOOR)
+
                 try:
-                    vega = _binary_vega(btc_spot, strike_k, tau_years, sigma_for_vega)
-                    # Sanity clamp: vega outside [-50, 50] is numerically unreliable
-                    if vega is not None and abs(vega) > 50:
-                        vega = None
+                    _v = _binary_vega(btc_spot, strike_k, tau_years, sigma_g)
+                    if math.isfinite(_v) and abs(_v) <= 5.0:
+                        vega = _v
                 except Exception:
-                    pass
+                    vega = 0.0
+
+                try:
+                    _d = _binary_delta(btc_spot, strike_k, tau_years, sigma_g)
+                    if math.isfinite(_d) and abs(_d) <= 1.0:   # Δ ∈ [0,1] for binary
+                        delta = _d
+                except Exception:
+                    delta = 0.0
+
+                try:
+                    _g = _binary_gamma(btc_spot, strike_k, tau_years, sigma_g)
+                    if math.isfinite(_g):
+                        gamma = _g
+                except Exception:
+                    gamma = 0.0
+
+                try:
+                    _t = _binary_theta(btc_spot, strike_k, tau_years, sigma_g)
+                    if math.isfinite(_t):
+                        theta = _t
+                except Exception:
+                    theta = 0.0
 
         snap = AnalyticsSnapshot(
             btc_spot   = btc_spot,
@@ -355,6 +463,9 @@ class AnalyticsEngine:
             iv         = iv,
             vol_gap    = vol_gap,
             vega       = vega,
+            delta      = delta,
+            gamma      = gamma,
+            theta      = theta,
             rv_samples = rv_samples,
         )
         self._last_snap = snap
@@ -376,6 +487,9 @@ class AnalyticsEngine:
         iv_str    = f"{snap.iv * 100:.1f}%"       if snap.iv      is not None else "n/a"
         gap_str   = f"{snap.vol_gap * 100:+.1f}%" if snap.vol_gap is not None else "n/a"
         vega_str  = f"{snap.vega:.4f}"            if snap.vega    is not None else "n/a"
+        delta_str = f"{snap.delta:.6f}"           if snap.delta   is not None else "n/a"
+        gamma_str = f"{snap.gamma:.2e}"           if snap.gamma   is not None else "n/a"
+        theta_str = f"{snap.theta:.6f}/min"       if snap.theta   is not None else "n/a"
         return (
             f"[S: {snap.btc_spot:,.0f}] | "
             f"[T: {t_str}] | "
@@ -383,7 +497,10 @@ class AnalyticsEngine:
             f"[RV: {rv_str}] | "
             f"[IV: {iv_str}] | "
             f"[Vol_Gap: {gap_str}] | "
-            f"[Vega: {vega_str}]"
+            f"[Vega: {vega_str}] | "
+            f"[Δ: {delta_str}] | "
+            f"[Γ: {gamma_str}] | "
+            f"[Θ/min: {theta_str}]"
         )
 
     def log_snapshot(self, snap: AnalyticsSnapshot) -> None:

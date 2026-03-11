@@ -1,0 +1,26 @@
+[package]
+name = "polymarket_kde"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "polymarket_kde"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.21", features = ["extension-module"] }
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+polars = { version = "0.44", features = ["parquet", "lazy"] }
+chrono = { version = "0.4", features = ["serde"] }
+url = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+reqwest = { version = "0.12", features = ["json"] }
+
+[profile.release]
+opt-level = 3
+lto = true

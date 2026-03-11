@@ -460,7 +460,94 @@ def _build_active_market(n: dict) -> ActiveMarket | None:
     )
 
 
-_GAMMA_EVENTS_URL = "https://gamma-api.polymarket.com/events"
+_GAMMA_EVENTS_URL    = "https://gamma-api.polymarket.com/events"
+_PYTH_BENCHMARKS_URL = (
+    "https://benchmarks.pyth.network/v1/shims/tradingview/history"
+    "?symbol=Crypto.BTC%2FUSD&resolution=1&from={from_ts}&to={to_ts}"
+)
+
+
+async def _fetch_ptb_from_pyth_benchmarks(
+    session: "aiohttp.ClientSession", start_ts_secs: float
+) -> float:
+    """
+    Query Pyth Benchmarks for the BTC/USD 1-min close at the exact market
+    open timestamp.  This is the most accurate source for priceToBeat on
+    BTC 15-min markets (Gamma eventMetadata is empty for these markets).
+
+    Returns 0.0 on any error so the caller can fall through to other sources.
+    """
+    if start_ts_secs <= 0:
+        return 0.0
+    ts = int(start_ts_secs)
+    url = _PYTH_BENCHMARKS_URL.format(from_ts=ts - 90, to_ts=ts + 30)
+    try:
+        async with session.get(
+            url, timeout=aiohttp.ClientTimeout(total=6)
+        ) as resp:
+            if resp.status != 200:
+                return 0.0
+            data = await resp.json(content_type=None)
+            if data.get("s") != "ok":
+                return 0.0
+            timestamps = data.get("t", [])
+            closes     = data.get("c", [])
+            if not timestamps or not closes:
+                return 0.0
+            # Find the bar whose close time is closest to (and ≤) start_ts
+            best_price = 0.0
+            best_diff  = float("inf")
+            for t, c in zip(timestamps, closes):
+                diff = abs(t - ts)
+                if diff < best_diff:
+                    best_diff  = diff
+                    best_price = float(c)
+            if best_price > 0:
+                _log.info(
+                    "[ptb_pyth] Pyth Benchmarks BTC @ ts=%d → $%.2f  (Δt=%ds)",
+                    ts, best_price, int(best_diff),
+                )
+            return best_price
+    except Exception as exc:
+        _log.debug("[ptb_pyth] Benchmarks error: %s", exc)
+        return 0.0
+
+
+async def _fetch_ptb_from_polymarket_api(
+    session: "aiohttp.ClientSession", start_ts_secs: float
+) -> float:
+    """
+    Fetch priceToBeat from Polymarket's internal crypto-price API.
+    This is the most accurate source: openPrice = BTC at market open,
+    fixed for the entire 15-min window.
+
+    start_ts_secs : Unix timestamp of market START (slug timestamp).
+    """
+    if start_ts_secs <= 0:
+        return 0.0
+    start_iso = datetime.fromtimestamp(start_ts_secs, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_iso   = datetime.fromtimestamp(start_ts_secs + 900, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    url = (
+        "https://polymarket.com/api/crypto/crypto-price"
+        f"?symbol=BTC&eventStartTime={start_iso}&variant=fifteen&endDate={end_iso}"
+    )
+    try:
+        async with session.get(
+            url, timeout=aiohttp.ClientTimeout(total=6), ssl=_SSL_NO_VERIFY
+        ) as resp:
+            if resp.status != 200:
+                return 0.0
+            data = await resp.json(content_type=None)
+            price = data.get("openPrice")
+            if price and float(price) > 0:
+                _log.info(
+                    "[ptb_poly] Polymarket API BTC @ %s → $%.2f",
+                    start_iso, float(price),
+                )
+                return float(price)
+    except Exception as exc:
+        _log.debug("[ptb_poly] error: %s", exc)
+    return 0.0
 
 
 async def _fetch_ptb_for_event(
@@ -721,6 +808,8 @@ class RolloverWatcher:
                 # If priceToBeat is missing, try multiple sources
                 if am.price_to_beat == 0.0:
                     ptb = 0.0
+                    # Source 0: Polymarket internal crypto-price API (most accurate)
+                    ptb = await _fetch_ptb_from_polymarket_api(session, float(ts))
                     # Source 1: market.line (Gamma field for strike price)
                     if not ptb and m.get("line"):
                         try:
@@ -737,6 +826,7 @@ class RolloverWatcher:
                         ptb = _extract_ptb_from_description(m)
                         if ptb > 0:
                             _log.info("[ptb_regex] slug=%s  priceToBeat=%.2f (from description)", slug, ptb)
+                    # Source 4: live Pyth price at rollover moment (set in dashboard.publish_rollover)
                     if ptb > 0:
                         am = dataclasses.replace(am, price_to_beat=ptb)
                 if am not in results:

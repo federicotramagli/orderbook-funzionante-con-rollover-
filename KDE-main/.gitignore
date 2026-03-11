@@ -1,0 +1,14 @@
+# Rust
+/target/
+Cargo.lock
+
+# Python
+.venv/
+__pycache__/
+*.egg-info/
+*.so
+*.dylib
+
+# Data & plots (large generated files)
+*.parquet
+*.png

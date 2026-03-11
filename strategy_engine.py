@@ -76,13 +76,13 @@ def logit(p: float) -> float:
 @dataclass
 class KernelQuote:
     """Full output of one PredictionMarketPricer.decide() call."""
-    fair_price:       float         # P(BTC > K at expiry) — theoretical probability
-    theoretical_bid:  float         # A-S spread bid
-    theoretical_ask:  float         # A-S spread ask
-    real_bid:         float         # Market best bid (from Polymarket CLOB)
-    real_ask:         float         # Market best ask
-    action:           str           # "BID" | "ASK" | "WAIT"
-    action_price:     Optional[float] = None  # Proposed limit price
+    fair_price:       float         # P(BTC > K at expiry) — YES theoretical probability
+    theoretical_bid:  float         # YES A-S spread bid
+    theoretical_ask:  float         # YES A-S spread ask
+    real_bid:         float         # YES market best bid (from Polymarket CLOB)
+    real_ask:         float         # YES market best ask
+    action:           str           # "BID" | "ASK" | "WAIT" | "CUTOFF"
+    action_price:     Optional[float] = None  # Proposed limit price (YES side)
     sigma_b:          float = 0.0   # Calibrated belief volatility (logit space)
     sigma_btc:        float = 0.0   # BTC annual vol used for fair value
     tau_secs:         float = 0.0   # Seconds to expiry used
@@ -90,6 +90,12 @@ class KernelQuote:
     fair_source:      str   = "?"   # "lognormal" | "market_mid" | "prior"
     btc_spot:         float = 0.0   # BTC spot used for fair value
     strike_k:         float = 0.0   # Strike K used
+    # NO/DOWN kernel (derived from YES by complement)
+    no_fair_price:    float = 0.0   # P(BTC ≤ K) = 1 - fair_price
+    no_theoretical_bid: float = 0.0 # NO bid = 1 - YES ask
+    no_theoretical_ask: float = 0.0 # NO ask = 1 - YES bid
+    no_action:        str   = "WAIT"
+    no_action_price:  Optional[float] = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -277,58 +283,93 @@ class PredictionMarketPricer:
                     "cancelling all quotes, entering OBSERVE mode.",
                     t_min, t_sec, HARD_CUTOFF_SECONDS,
                 )
+            _no_bid_co = round(round((1.0 - self.theoretical_ask) / TICK_SIZE) * TICK_SIZE, 2)
+            _no_ask_co = round(round((1.0 - self.theoretical_bid) / TICK_SIZE) * TICK_SIZE, 2)
+            _no_bid_co = max(TICK_SIZE, min(1.0 - TICK_SIZE, _no_bid_co))
+            _no_ask_co = max(TICK_SIZE, min(1.0 - TICK_SIZE, _no_ask_co))
             return KernelQuote(
-                fair_price      = round(self.fair_price, 4),
-                theoretical_bid = self.theoretical_bid,
-                theoretical_ask = self.theoretical_ask,
-                real_bid        = real_bid,
-                real_ask        = real_ask,
-                action          = "CUTOFF",
-                action_price    = None,
-                sigma_b         = round(self.sigma_b,   4),
-                sigma_btc       = round(self.sigma_btc, 4),
-                tau_secs        = round(self.tau_secs,  1),
-                inventory       = round(self.inventory, 4),
-                fair_source     = self.fair_source,
-                btc_spot        = round(self.btc_spot,  2),
-                strike_k        = round(self.strike_k,  2),
+                fair_price          = round(self.fair_price, 4),
+                theoretical_bid     = self.theoretical_bid,
+                theoretical_ask     = self.theoretical_ask,
+                real_bid            = real_bid,
+                real_ask            = real_ask,
+                action              = "CUTOFF",
+                action_price        = None,
+                sigma_b             = round(self.sigma_b,   4),
+                sigma_btc           = round(self.sigma_btc, 4),
+                tau_secs            = round(self.tau_secs,  1),
+                inventory           = round(self.inventory, 4),
+                fair_source         = self.fair_source,
+                btc_spot            = round(self.btc_spot,  2),
+                strike_k            = round(self.strike_k,  2),
+                no_fair_price       = round(1.0 - self.fair_price, 4),
+                no_theoretical_bid  = _no_bid_co,
+                no_theoretical_ask  = _no_ask_co,
+                no_action           = "CUTOFF",
+                no_action_price     = None,
             )
 
         action = "WAIT"
         action_price = None
 
-        # ── BID signal ──────────────────────────────────────────────────────
+        # ── YES BID signal ───────────────────────────────────────────────────
         if self.theoretical_bid > real_bid:
-            # Quote one tick above market bid (price-to-beat logic)
             candidate = round(real_bid + TICK_SIZE, 2)
-            # Safety: never bid above our fair value estimate
             if candidate <= self.theoretical_bid + TICK_SIZE:
                 action       = "BID"
                 action_price = candidate
 
-        # ── ASK signal ──────────────────────────────────────────────────────
+        # ── YES ASK signal ───────────────────────────────────────────────────
         if action == "WAIT" and self.theoretical_ask < real_ask:
-            # Quote one tick below market ask
             candidate = round(real_ask - TICK_SIZE, 2)
             if candidate >= self.theoretical_ask - TICK_SIZE:
                 action       = "ASK"
                 action_price = candidate
 
+        # ── NO/DOWN kernel (complement of YES) ──────────────────────────────
+        # P_NO = 1 - P_YES.  Under no-arbitrage:
+        #   NO_bid = 1 - YES_ask  (best price to buy NO = best price to sell YES)
+        #   NO_ask = 1 - YES_bid
+        # Snapped to 0.01 grid.
+        no_fair  = round(1.0 - self.fair_price, 4)
+        no_bid   = round(round((1.0 - self.theoretical_ask) / TICK_SIZE) * TICK_SIZE, 2)
+        no_ask   = round(round((1.0 - self.theoretical_bid) / TICK_SIZE) * TICK_SIZE, 2)
+        # Clamp to valid range
+        no_bid   = max(TICK_SIZE, min(1.0 - TICK_SIZE, no_bid))
+        no_ask   = max(TICK_SIZE, min(1.0 - TICK_SIZE, no_ask))
+
+        # NO action: mirror of YES action (BID YES ↔ ASK NO, ASK YES ↔ BID NO)
+        no_action = "WAIT"
+        no_action_price = None
+        if action == "BID" and action_price is not None:
+            # Buying YES at X ≡ Selling NO at (1-X)
+            no_action = "ASK"
+            no_action_price = round(round((1.0 - action_price) / TICK_SIZE) * TICK_SIZE, 2)
+        elif action == "ASK" and action_price is not None:
+            # Selling YES at X ≡ Buying NO at (1-X)
+            no_action = "BID"
+            no_action_price = round(round((1.0 - action_price) / TICK_SIZE) * TICK_SIZE, 2)
+
         return KernelQuote(
-            fair_price      = round(self.fair_price, 4),
-            theoretical_bid = self.theoretical_bid,   # already on 0.01 grid from _recalculate
-            theoretical_ask = self.theoretical_ask,
-            real_bid        = real_bid,
-            real_ask        = real_ask,
-            action          = action,
-            action_price    = action_price,
-            sigma_b         = round(self.sigma_b,   4),
-            sigma_btc       = round(self.sigma_btc, 4),
-            tau_secs        = round(self.tau_secs,  1),
-            inventory       = round(self.inventory, 4),
-            fair_source     = self.fair_source,
-            btc_spot        = round(self.btc_spot,  2),
-            strike_k        = round(self.strike_k,  2),
+            fair_price          = round(self.fair_price, 4),
+            theoretical_bid     = self.theoretical_bid,
+            theoretical_ask     = self.theoretical_ask,
+            real_bid            = real_bid,
+            real_ask            = real_ask,
+            action              = action,
+            action_price        = action_price,
+            sigma_b             = round(self.sigma_b,   4),
+            sigma_btc           = round(self.sigma_btc, 4),
+            tau_secs            = round(self.tau_secs,  1),
+            inventory           = round(self.inventory, 4),
+            fair_source         = self.fair_source,
+            btc_spot            = round(self.btc_spot,  2),
+            strike_k            = round(self.strike_k,  2),
+            no_fair_price       = no_fair,
+            no_theoretical_bid  = no_bid,
+            no_theoretical_ask  = no_ask,
+            no_action           = no_action,
+            no_action_price     = no_action_price,
         )
 
     def format_log_line(
@@ -362,31 +403,41 @@ class PredictionMarketPricer:
 
     # ── Internal calculations ─────────────────────────────────────────────────
 
+    # Volatility floor: BTC fat tails mean RV can never be treated as <50% annualised.
+    # Without this, a calm 15-min window would produce near-binary 0/1 prices and
+    # make the kernel dangerously over-confident about small spot/strike gaps.
+    _VOL_FLOOR: float = 0.50   # 50% annualised minimum effective sigma
+
     def _fair_value(self) -> float:
         """
-        Layer 1 — Lognormal fair value P(BTC_T > K).
+        Layer 1 — Lognormal fair value P(BTC_T > K)  [Cash-or-Nothing Binary Call].
+
+        Formula (r = 0):
+            effective_sigma = max(sigma_btc, VOL_FLOOR)   ← fat-tail guard
+            T_years         = max(tau_secs, 0.5) / 31_536_000
+            d2              = (ln(S/K) − 0.5·σ²·T) / (σ·√T)
+            P               = N(d2)   rounded to 4dp, clamped [0.01, 0.99]
 
         Priority:
           1. Lognormal  — when strike_k > 0, btc_spot > 0, tau_secs >= 1s
-               d2 = (ln(S/K) - 0.5*sigma_btc²*T) / (sigma_btc*sqrt(T))
-               P  = N(d2)
-          2. Market mid — when K or S unavailable but we have real bid/ask data.
-               Uses (yes_bid + yes_ask)/2 as best estimate of market consensus.
-               A-S spread is still applied correctly around this value.
-          3. Prior 0.5  — when no market data available yet.
+          2. Market mid — K or S unavailable; use (yes_bid + yes_ask)/2
+          3. Prior 0.5  — no market data yet
 
         Source is stored in self.fair_source for logging/UI transparency.
         """
         # ── 1. Full lognormal model ───────────────────────────────────────────
         if self.strike_k > 0 and self.btc_spot > 0 and self.tau_secs >= 1.0:
-            T = self.tau_secs / _SECS_PER_YEAR
+            # Volatility floor: prevents over-confidence when RV is low
+            effective_sigma: float = max(self.sigma_btc, self._VOL_FLOOR)
+            # Time: floor at 0.5s to avoid asymptotic d2 in the final tick
+            T_years: float = max(self.tau_secs, 0.5) / 31_536_000.0
             try:
                 d2 = (
                     math.log(self.btc_spot / self.strike_k)
-                    - 0.5 * self.sigma_btc ** 2 * T
-                ) / (self.sigma_btc * math.sqrt(T))
+                    - 0.5 * effective_sigma ** 2 * T_years
+                ) / (effective_sigma * math.sqrt(T_years))
                 self.fair_source = "lognormal"
-                return max(0.001, min(0.999, _norm_cdf(d2)))
+                return round(max(0.01, min(0.99, _norm_cdf(d2))), 4)
             except (ValueError, ZeroDivisionError):
                 pass   # fall through to market_mid
 
@@ -472,3 +523,8 @@ class PredictionMarketPricer:
         raw_ask = max(TICK_SIZE, min(1.0 - TICK_SIZE, sigmoid(ask_x)))
         self.theoretical_bid = round(round(raw_bid / TICK_SIZE) * TICK_SIZE, 2)
         self.theoretical_ask = round(round(raw_ask / TICK_SIZE) * TICK_SIZE, 2)
+        # At extremes (fair ≈ 0 or ≈ 1) both bid/ask can snap to the same grid level.
+        # Enforce minimum 1-tick spread so the NO complement (1-bid, 1-ask) is meaningful.
+        if self.theoretical_ask <= self.theoretical_bid:
+            self.theoretical_bid = max(TICK_SIZE,        self.theoretical_ask - TICK_SIZE)
+            self.theoretical_ask = min(1.0 - TICK_SIZE,  self.theoretical_bid  + TICK_SIZE)
